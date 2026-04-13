@@ -1,0 +1,12 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check-backend.md", "reason": "Backend check spec"}
+{"file": ".trellis/tasks/04-13-omv-version-time-storage/prd.md", "reason": "version-time-storage verification"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "version-time-storage verification"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "version-time-storage verification"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "version-time-storage verification"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "version-time-storage verification"}
+{"file": "src/core/schema.rs", "reason": "version-time-storage verification"}
+{"file": "src/storage/atomic.rs", "reason": "version-time-storage verification"}
+{"file": "src/storage/config.rs", "reason": "version-time-storage verification"}
+{"file": "src/storage/state.rs", "reason": "version-time-storage verification"}
+{"file": "src/storage/targets.rs", "reason": "version-time-storage verification"}

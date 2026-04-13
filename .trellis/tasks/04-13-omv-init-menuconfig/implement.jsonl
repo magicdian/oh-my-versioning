@@ -1,0 +1,12 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-13-omv-init-menuconfig/prd.md", "reason": "init menuconfig implementation"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "init menuconfig implementation"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "init menuconfig implementation"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "init menuconfig implementation"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "init menuconfig implementation"}
+{"file": "docs/matrix/MENUCONFIG_STYLE_MATRIX.md", "reason": "init menuconfig implementation"}
+{"file": "src/ui/app.rs", "reason": "init menuconfig implementation"}
+{"file": "src/ui/event.rs", "reason": "init menuconfig implementation"}
+{"file": "src/ui/state/draft.rs", "reason": "init menuconfig implementation"}
+{"file": "src/ui/screen/popup.rs", "reason": "init menuconfig implementation"}

@@ -1,0 +1,15 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-13-omv-target-sync-skills/prd.md", "reason": "target sync and skills"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "target sync and skills"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "target sync and skills"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "target sync and skills"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "target sync and skills"}
+{"file": "src/sync/mod.rs", "reason": "target sync and skills"}
+{"file": "src/sync/rust.rs", "reason": "target sync and skills"}
+{"file": "src/sync/python.rs", "reason": "target sync and skills"}
+{"file": "src/sync/go.rs", "reason": "target sync and skills"}
+{"file": "src/sync/java.rs", "reason": "target sync and skills"}
+{"file": "src/sync/c_family.rs", "reason": "target sync and skills"}
+{"file": "src/storage/targets.rs", "reason": "target sync and skills"}
