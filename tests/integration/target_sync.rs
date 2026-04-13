@@ -4,7 +4,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omv::app;
-use omv::cli::{Cli, Command};
+use omv::cli::{Cli, Command, OutputMode};
 use omv::core::date::LogicalDate;
 use omv::core::locale::OperatorLocale;
 use omv::core::schema::{OmvConfig, OmvState, OmvTargetRecord, OmvTargets};
@@ -78,6 +78,7 @@ fn sync_command_updates_all_v1_targets_and_skills_guidance() {
             command: Command::Sync,
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
+            output_mode: OutputMode::Text,
         })
         .expect("sync command should succeed");
         assert!(output.message.contains("2604.13.9"));
@@ -178,6 +179,7 @@ fn bump_command_updates_state_and_syncs_registered_targets() {
             command: Command::Bump,
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
+            output_mode: OutputMode::Text,
         })
         .expect("bump command should succeed");
     });

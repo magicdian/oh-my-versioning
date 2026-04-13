@@ -13,6 +13,8 @@ remote control plane. The backend is responsible for:
 - `.omv/` file loading, validation, and atomic persistence
 - NTP-backed time validation without changing system time
 - target synchronization into language-native manifests and runtime exports
+- adapter projection from `.omv/ai/*` into agent/spec host frameworks
+- structured JSON output for automation-safe reads and writes
 - localized CLI/TUI output driven by shared i18n catalogs
 
 These docs are bootstrapped from the current product definition and should be
@@ -23,9 +25,9 @@ to provide stronger examples.
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Rust module boundaries for core logic, persistence, sync, and adapters | Bootstrapped |
-| [Database Guidelines](./database-guidelines.md) | Persistent state contracts for `.omv/config.toml`, `.omv/state.toml`, and `.omv/targets.toml` | Bootstrapped |
-| [Error Handling](./error-handling.md) | Error taxonomy, exit behavior, and validation flow | Bootstrapped |
+| [Directory Structure](./directory-structure.md) | Rust module boundaries for core logic, persistence, sync, adapter projection, and automation output | Bootstrapped |
+| [Database Guidelines](./database-guidelines.md) | Persistent state contracts for `.omv/*.toml` and generated OMV AI artifacts | Bootstrapped |
+| [Error Handling](./error-handling.md) | Error taxonomy, exit behavior, structured JSON failures, and validation flow | Bootstrapped |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging and secret-safe observability rules | Bootstrapped |
 | [Localization Guidelines](./localization-guidelines.md) | i18n contracts for CLI and TUI output | Bootstrapped |
 | [Quality Guidelines](./quality-guidelines.md) | Testing bar, forbidden patterns, and review checklist | Bootstrapped |
@@ -44,8 +46,8 @@ Before writing backend code for `omv`, read:
 Also read:
 
 - [Cross-Layer Thinking Guide](../guides/cross-layer-thinking-guide.md) for
-  version-flow, sync, or i18n changes that cross CLI/TUI/storage/adapter
-  boundaries
+  version-flow, sync, adapter-projection, or i18n changes that cross
+  CLI/TUI/storage boundaries
 - [Menuconfig Style Matrix](/Users/magicdian/Documents/personal_project/oh-my-versioning/docs/matrix/MENUCONFIG_STYLE_MATRIX.md)
   when changing `omv init` or future menuconfig-style flows
 
@@ -54,8 +56,12 @@ Also read:
 - `.omv/` is the only source of truth; language-native manifests are derived
   outputs.
 - V1 stores configuration, mutable state, and targets in separate TOML files.
+- V1 also stores adapter installation state in `.omv/adapters.toml`.
+- `.omv/ai/*` is the canonical integration surface projected into agent/spec
+  hosts.
 - `.omv/targets.toml` uses a flat target list in V1.
 - i18n is mandatory for CLI and init TUI from the first implementation.
+- machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system
   clock.
 

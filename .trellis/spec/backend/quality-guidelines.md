@@ -19,6 +19,11 @@ All CLI and TUI copy must come from catalogs under `resources/i18n/`.
 
 There must be one version engine.
 
+### Don't: Let host adapters become a second source of truth
+
+`AGENTS.md`, `CLAUDE.md`, OpenSpec files, and Trellis guides are projections of
+`.omv/ai/*`, not canonical version policy stores.
+
 ### Don't: Mutate native manifests without going through a target adapter
 
 This breaks cross-language consistency.
@@ -38,6 +43,8 @@ Partial writes can corrupt the source of truth.
 - atomic writes for `.omv` files
 - localized CLI/TUI copy through catalogs
 - adapter-based sync per language family
+- adapter registry plus canonical `.omv/ai/*` generation for agent/spec
+  projections
 - parity tests between `en-US` and `zh-CN`
 
 ## Testing Requirements
@@ -45,20 +52,25 @@ Partial writes can corrupt the source of truth.
 - unit tests for version calculation and time-validation branching
 - persistence round-trip tests for all `.omv` files
 - adapter tests for each supported language family
+- adapter install/refresh tests for supported host projections
 - locale parity/fallback tests
-- integration tests for `omv init`, `omv bump`, and `omv sync`
+- integration tests for `omv init`, `omv current`, `omv bump`, `omv sync`,
+  and `omv adapter ...`
 
 When a command changes output semantics, add assertion coverage for:
 
 - localized success/error message key paths
+- structured JSON success/error envelope shape
 - target sync result
 - persisted `.omv` state
 
 ## Code Review Checklist
 
 - Is `.omv` still the only truth source?
+- Are `.omv/ai/*` and installed host adapters still thin projections?
 - Are locale strings catalog-driven?
 - Is version logic reused instead of copied?
 - Are errors typed and localized at the boundary?
+- Are structured JSON keys stable for automation?
 - Does the change preserve the V1 flat target model?
 - Are tests covering both `daily-reset` and `continuous` where relevant?

@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+
+use super::adapter::{AdapterInstallMode, AdapterKind, AdapterTargetMode};
 use super::locale::OperatorLocale;
 use super::target::{PreProjectStrategy, ProjectProfile, TargetLanguage};
 use super::time::LastTimeSource;
@@ -94,4 +97,35 @@ impl OmvTargetRecord {
             enabled: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmvAdapters {
+    pub schema_version: u32,
+    pub installations: Vec<OmvAdapterInstallation>,
+}
+
+impl Default for OmvAdapters {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            installations: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmvAdapterInstallation {
+    pub kind: AdapterKind,
+    pub name: String,
+    pub install_mode: AdapterInstallMode,
+    pub source_contract_version: u32,
+    pub targets: Vec<OmvAdapterTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmvAdapterTarget {
+    pub path: String,
+    pub source_path: String,
+    pub mode: AdapterTargetMode,
 }

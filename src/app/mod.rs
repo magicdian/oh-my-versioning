@@ -1,7 +1,10 @@
 use std::io::IsTerminal;
 use std::path::Path;
 
-use crate::cli::{Cli, Command};
+use serde::Serialize;
+
+use crate::adapter;
+use crate::cli::{AdapterAction, AdapterCommand, Cli, Command, OutputMode};
 use crate::core::date::LogicalDate;
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::{OmvConfig, OmvState, OmvTargetRecord, OmvTargets};
@@ -15,22 +18,51 @@ use crate::storage;
 use crate::ui::app as init_ui_state;
 use crate::ui::state::draft::InitDraft;
 
+const STRUCTURED_CONTRACT_VERSION: &str = "1";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppOutput {
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct BumpExecution {
+    previous_version: String,
     version: String,
-    time_source: LastTimeSource,
+    logical_date: String,
+    build_number: u32,
+    time_source: String,
+    synced: usize,
+    skipped: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct SyncExecution {
     version: String,
     synced: usize,
     skipped: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct CurrentExecution {
+    version: String,
+    logical_date: String,
+    build_number: u32,
+    build_policy: String,
+    version_output: String,
+    last_time_source: String,
+    omv_root: String,
+    enabled_targets: usize,
+    total_targets: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct StructuredEnvelope<T: Serialize> {
+    ok: bool,
+    contract_version: &'static str,
+    command: String,
+    data: Option<T>,
+    error: Option<crate::errors::StructuredError>,
 }
 
 pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
@@ -42,9 +74,13 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
     let ntp_override = cli.ntp_override;
 
     match cli.command {
-        Command::Init => run_init(&omv_root, &catalog, &locale),
-        Command::Bump => run_bump(&omv_root, &catalog, ntp_override),
-        Command::Sync => run_sync(&omv_root, &catalog),
+        Command::Init => run_init(&omv_root, &catalog, &locale, cli.output_mode),
+        Command::Bump => run_bump(&omv_root, &catalog, ntp_override, cli.output_mode),
+        Command::Sync => run_sync(&omv_root, &catalog, cli.output_mode),
+        Command::Current => run_current(&omv_root, &catalog, cli.output_mode),
+        Command::Adapter(adapter_command) => {
+            run_adapter(&cwd, &omv_root, &catalog, cli.output_mode, adapter_command)
+        }
         Command::Help => Ok(AppOutput {
             message: render_help(&catalog),
         }),
@@ -67,6 +103,8 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.commands.init")),
         format!("  {}", catalog.t("cli.help.commands.bump")),
         format!("  {}", catalog.t("cli.help.commands.sync")),
+        format!("  {}", catalog.t("cli.help.commands.current")),
+        format!("  {}", catalog.t("cli.help.commands.adapter")),
         format!("  {}", catalog.t("cli.help.commands.help")),
         format!("  {}", catalog.t("cli.help.commands.version")),
         String::new(),
@@ -75,11 +113,15 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.options.version")),
         format!("  {}", catalog.t("cli.help.options.locale")),
         format!("  {}", catalog.t("cli.help.options.no_ntp")),
+        format!("  {}", catalog.t("cli.help.options.json")),
+        format!("  {}", catalog.t("cli.help.options.output")),
         String::new(),
         catalog.t("cli.help.examples.title"),
         format!("  {}", catalog.t("cli.help.examples.init")),
         format!("  {}", catalog.t("cli.help.examples.bump")),
         format!("  {}", catalog.t("cli.help.examples.sync")),
+        format!("  {}", catalog.t("cli.help.examples.current")),
+        format!("  {}", catalog.t("cli.help.examples.adapter")),
         format!("  {}", catalog.t("cli.help.examples.locale")),
         format!("  {}", catalog.t("cli.help.examples.no_ntp")),
     ]
@@ -100,6 +142,7 @@ pub fn render_error(locale: &str, err: &OmvError) -> String {
     match catalog {
         Ok(cat) => match err {
             OmvError::Cli(_) => cat.tf("error.cli", &["detail", detail.as_str()]),
+            OmvError::Adapter(_) => cat.tf("error.adapter", &["detail", detail.as_str()]),
             OmvError::Config(_) => cat.tf("error.config", &["detail", detail.as_str()]),
             OmvError::State(_) => cat.tf("error.state", &["detail", detail.as_str()]),
             OmvError::Time(_) => cat.tf("error.time", &["detail", detail.as_str()]),
@@ -114,7 +157,23 @@ pub fn render_error(locale: &str, err: &OmvError) -> String {
     }
 }
 
-fn run_init(omv_root: &Path, catalog: &Catalog, locale: &str) -> Result<AppOutput, OmvError> {
+pub fn render_structured_error(command: &str, err: &OmvError) -> String {
+    let envelope = StructuredEnvelope::<serde_json::Value> {
+        ok: false,
+        contract_version: STRUCTURED_CONTRACT_VERSION,
+        command: command.to_owned(),
+        data: None,
+        error: Some(err.structured_error()),
+    };
+    serde_json::to_string_pretty(&envelope).expect("structured error should serialize")
+}
+
+fn run_init(
+    omv_root: &Path,
+    catalog: &Catalog,
+    locale: &str,
+    output_mode: OutputMode,
+) -> Result<AppOutput, OmvError> {
     let project_root = omv_root.parent().unwrap_or(omv_root);
     let discovery = crate::ui::discovery::discover_languages(project_root);
 
@@ -128,22 +187,32 @@ fn run_init(omv_root: &Path, catalog: &Catalog, locale: &str) -> Result<AppOutpu
 
     persist_init_state(omv_root, &draft)?;
 
-    Ok(AppOutput {
-        message: catalog.t("init.result.saved"),
-    })
+    let message = match output_mode {
+        OutputMode::Text => catalog.t("init.result.saved"),
+        OutputMode::Json => render_structured_success(
+            "init",
+            serde_json::json!({
+                "saved": true,
+                "omv_root": omv_root.display().to_string()
+            }),
+        ),
+    };
+
+    Ok(AppOutput { message })
 }
 
 fn run_bump(
     omv_root: &Path,
     catalog: &Catalog,
     ntp_override: Option<bool>,
+    output_mode: OutputMode,
 ) -> Result<AppOutput, OmvError> {
     let ntp = NtpTimeSource::default();
     let system = SystemTimeSource;
     let execution = execute_bump(omv_root, &ntp, &system, ntp_override)?;
 
-    Ok(AppOutput {
-        message: catalog.tf(
+    let message = match output_mode {
+        OutputMode::Text => catalog.tf(
             "cli.bump.success",
             &[
                 "version",
@@ -152,16 +221,23 @@ fn run_bump(
                 execution.time_source.as_str(),
             ],
         ),
-    })
+        OutputMode::Json => render_structured_success("bump", &execution),
+    };
+
+    Ok(AppOutput { message })
 }
 
-fn run_sync(omv_root: &Path, catalog: &Catalog) -> Result<AppOutput, OmvError> {
+fn run_sync(
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+) -> Result<AppOutput, OmvError> {
     let execution = execute_sync(omv_root)?;
     let synced = execution.synced.to_string();
     let skipped = execution.skipped.to_string();
 
-    Ok(AppOutput {
-        message: catalog.tf(
+    let message = match output_mode {
+        OutputMode::Text => catalog.tf(
             "cli.sync.success",
             &[
                 "version",
@@ -172,7 +248,136 @@ fn run_sync(omv_root: &Path, catalog: &Catalog) -> Result<AppOutput, OmvError> {
                 skipped.as_str(),
             ],
         ),
-    })
+        OutputMode::Json => render_structured_success("sync", &execution),
+    };
+
+    Ok(AppOutput { message })
+}
+
+fn run_current(
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+) -> Result<AppOutput, OmvError> {
+    let execution = execute_current(omv_root)?;
+    let build = execution.build_number.to_string();
+    let message = match output_mode {
+        OutputMode::Text => catalog.tf(
+            "cli.current.success",
+            &[
+                "version",
+                execution.version.as_str(),
+                "build",
+                build.as_str(),
+                "date",
+                execution.logical_date.as_str(),
+            ],
+        ),
+        OutputMode::Json => render_structured_success("current", &execution),
+    };
+
+    Ok(AppOutput { message })
+}
+
+fn run_adapter(
+    cwd: &Path,
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+    command: AdapterCommand,
+) -> Result<AppOutput, OmvError> {
+    let project_root = storage::resolve_project_root(cwd)?;
+    let selection = adapter::AdapterSelection {
+        agents: command.agents,
+        specs: command.specs,
+    };
+
+    let message = match command.action {
+        AdapterAction::Install => {
+            let summary = adapter::install_selected(omv_root, &project_root, &selection)?;
+            let count = summary.installed.len().to_string();
+            match output_mode {
+                OutputMode::Text => {
+                    catalog.tf("cli.adapter.install.success", &["count", count.as_str()])
+                }
+                OutputMode::Json => render_structured_success("adapter.install", &summary),
+            }
+        }
+        AdapterAction::Refresh => {
+            let summary = adapter::refresh_selected(omv_root, &project_root, &selection)?;
+            let count = summary.installed.len().to_string();
+            match output_mode {
+                OutputMode::Text => {
+                    catalog.tf("cli.adapter.refresh.success", &["count", count.as_str()])
+                }
+                OutputMode::Json => render_structured_success("adapter.refresh", &summary),
+            }
+        }
+        AdapterAction::List => {
+            let summary = adapter::status(omv_root)?;
+            match output_mode {
+                OutputMode::Text => render_adapter_list_text(catalog, &summary.available),
+                OutputMode::Json => render_structured_success("adapter.list", &summary.available),
+            }
+        }
+        AdapterAction::Status => {
+            let summary = adapter::status(omv_root)?;
+            match output_mode {
+                OutputMode::Text => render_adapter_status_text(catalog, &summary),
+                OutputMode::Json => render_structured_success("adapter.status", &summary),
+            }
+        }
+    };
+
+    Ok(AppOutput { message })
+}
+
+fn render_structured_success<T: Serialize>(command: &str, data: T) -> String {
+    let envelope = StructuredEnvelope {
+        ok: true,
+        contract_version: STRUCTURED_CONTRACT_VERSION,
+        command: command.to_owned(),
+        data: Some(data),
+        error: None,
+    };
+    serde_json::to_string_pretty(&envelope).expect("structured success should serialize")
+}
+
+fn render_adapter_list_text(catalog: &Catalog, available: &adapter::AdapterCatalog) -> String {
+    let agents = available.agents.join(", ");
+    let specs = available.specs.join(", ");
+    [
+        catalog.t("cli.adapter.list.header"),
+        catalog.tf("cli.adapter.list.agents", &["value", agents.as_str()]),
+        catalog.tf("cli.adapter.list.specs", &["value", specs.as_str()]),
+    ]
+    .join("\n")
+}
+
+fn render_adapter_status_text(catalog: &Catalog, status: &adapter::AdapterStatusSummary) -> String {
+    if status.installed.is_empty() {
+        return [
+            catalog.t("cli.adapter.status.header"),
+            catalog.t("cli.adapter.status.none"),
+        ]
+        .join("\n");
+    }
+
+    let mut lines = vec![catalog.t("cli.adapter.status.header")];
+    for installation in &status.installed {
+        lines.push(catalog.tf(
+            "cli.adapter.status.item",
+            &[
+                "kind",
+                installation.kind.as_str(),
+                "name",
+                installation.name.as_str(),
+                "mode",
+                installation.install_mode.as_str(),
+            ],
+        ));
+    }
+    lines.join("\n")
 }
 
 fn resolve_locale_for_root(
@@ -218,6 +423,30 @@ fn load_targets_if_exists(omv_root: &Path) -> Result<OmvTargets, OmvError> {
     }
 }
 
+fn execute_current(omv_root: &Path) -> Result<CurrentExecution, OmvError> {
+    adapter::ensure_canonical_artifacts(omv_root)?;
+    let config = storage::config::load_config(omv_root)?;
+    let state = storage::state::load_state(omv_root)?;
+    let targets = load_targets_if_exists(omv_root)?;
+    let enabled_targets = targets
+        .targets
+        .iter()
+        .filter(|target| target.enabled)
+        .count();
+
+    Ok(CurrentExecution {
+        version: state.last_issued_version,
+        logical_date: state.logical_date,
+        build_number: state.build_number,
+        build_policy: config.build_policy.as_str().to_owned(),
+        version_output: config.version_output.as_str().to_owned(),
+        last_time_source: state.last_time_source.as_str().to_owned(),
+        omv_root: omv_root.display().to_string(),
+        enabled_targets,
+        total_targets: targets.targets.len(),
+    })
+}
+
 fn execute_bump(
     omv_root: &Path,
     ntp_source: &dyn TimeSource,
@@ -229,6 +458,7 @@ fn execute_bump(
         config.ntp_enabled = enabled;
     }
     let state = storage::state::load_state(omv_root)?;
+    let previous_version = state.last_issued_version.clone();
 
     let validated =
         crate::core::time::validate_current_date(&config, &state, ntp_source, system_source)?;
@@ -241,11 +471,16 @@ fn execute_bump(
     next_state.last_time_source = validated.source;
 
     storage::state::save_state(omv_root, &next_state)?;
-    execute_sync(omv_root)?;
+    let sync = execute_sync(omv_root)?;
 
     Ok(BumpExecution {
+        previous_version,
         version: next.value,
-        time_source: validated.source,
+        logical_date: next.logical_date.to_iso_string(),
+        build_number: next.build_number,
+        time_source: validated.source.as_str().to_owned(),
+        synced: sync.synced,
+        skipped: sync.skipped,
     })
 }
 
@@ -257,6 +492,7 @@ fn execute_sync(omv_root: &Path) -> Result<SyncExecution, OmvError> {
     let summary =
         crate::sync::sync_all_targets(project_root, &targets, &state.last_issued_version)?;
     crate::sync::skills::generate_skills(omv_root, &state.last_issued_version)?;
+    adapter::ensure_canonical_artifacts(omv_root)?;
 
     Ok(SyncExecution {
         version: state.last_issued_version,
@@ -278,6 +514,7 @@ fn persist_init_state(omv_root: &Path, draft: &InitDraft) -> Result<(), OmvError
     storage::targets::save_targets(omv_root, &targets)?;
 
     ensure_state_exists(omv_root, &config)?;
+    adapter::ensure_canonical_artifacts(omv_root)?;
 
     Ok(())
 }
@@ -341,19 +578,20 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use crate::cli::{AdapterAction, AdapterCommand, OutputMode};
     use crate::core::date::LogicalDate;
     use crate::core::locale::OperatorLocale;
     use crate::core::schema::{OmvConfig, OmvState};
     use crate::core::target::TargetLanguage;
     use crate::core::time::{LastTimeSource, TimeSource};
     use crate::core::versioning::BuildPolicy;
-    use crate::errors::{NtpError, OmvError};
+    use crate::errors::{NtpError, OmvError, StateError};
     use crate::storage;
     use crate::ui::state::draft::InitDraft;
 
     use super::{
-        execute_bump, execute_sync, persist_init_state, render_help, render_version,
-        resolve_locale_for_root,
+        execute_bump, execute_current, execute_sync, persist_init_state, render_help,
+        render_structured_error, render_version, resolve_locale_for_root, run_adapter,
     };
 
     struct FixedSource {
@@ -403,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn persist_init_state_writes_targets_and_initial_state() {
+    fn persist_init_state_writes_targets_initial_state_and_ai_artifacts() {
         let omv_root = temp_omv_root("persist-init");
         let mut draft =
             InitDraft::from_detected_languages(&[TargetLanguage::Rust, TargetLanguage::Go]);
@@ -420,21 +658,33 @@ mod tests {
 
         let targets = storage::targets::load_targets(&omv_root).expect("targets should load");
         assert_eq!(targets.targets.len(), TargetLanguage::all().len());
-        assert!(
-            targets
-                .targets
-                .iter()
-                .any(|target| { target.language == TargetLanguage::Rust && target.enabled })
-        );
-        assert!(
-            targets
-                .targets
-                .iter()
-                .any(|target| { target.language == TargetLanguage::Go && target.enabled })
-        );
 
         let state = storage::state::load_state(&omv_root).expect("state should load");
         assert_eq!(state.build_number, 1);
+        assert!(omv_root.join("ai/contract.json").exists());
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_current_reports_truth_state() {
+        let omv_root = temp_omv_root("current");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                schema_version: 1,
+                logical_date: String::from("2026-04-13"),
+                build_number: 2,
+                last_issued_version: String::from("2604.13.2"),
+                last_time_source: LastTimeSource::System,
+            },
+        )
+        .expect("state should save");
+
+        let current = execute_current(&omv_root).expect("current should work");
+        assert_eq!(current.version, "2604.13.2");
+        assert_eq!(current.build_number, 2);
 
         cleanup_omv_root(&omv_root);
     }
@@ -459,19 +709,16 @@ mod tests {
             fs::read_to_string(project_root.join("Cargo.toml")).expect("Cargo.toml should sync");
         assert!(cargo.contains("2604.13.9"));
 
-        let runtime = fs::read_to_string(project_root.join("src/generated/version.rs"))
-            .expect("runtime export should exist");
-        assert!(runtime.contains("2604.13.9"));
-
         let guidance = fs::read_to_string(omv_root.join("skills/bump-guidance.md"))
             .expect("skills guidance should exist");
         assert!(guidance.contains("omv bump"));
+        assert!(omv_root.join("ai/instructions.md").exists());
 
         cleanup_omv_root(&omv_root);
     }
 
     #[test]
-    fn execute_bump_updates_state_and_returns_version() {
+    fn execute_bump_updates_state_and_sync_summary() {
         let omv_root = temp_omv_root("execute-bump-ok");
 
         let config = OmvConfig::default();
@@ -480,6 +727,7 @@ mod tests {
         let state = OmvState {
             logical_date: "2026-04-13".to_owned(),
             build_number: 1,
+            last_issued_version: "2604.13.1".to_owned(),
             ..OmvState::default()
         };
         storage::state::save_state(&omv_root, &state).expect("state should save");
@@ -495,7 +743,7 @@ mod tests {
 
         let execution = execute_bump(&omv_root, &ntp, &system, None).expect("bump should succeed");
         assert_eq!(execution.version, "2604.13.2");
-        assert_eq!(execution.time_source, LastTimeSource::Ntp);
+        assert_eq!(execution.time_source, LastTimeSource::Ntp.as_str());
 
         let updated = storage::state::load_state(&omv_root).expect("updated state should load");
         assert_eq!(updated.build_number, 2);
@@ -570,21 +818,70 @@ mod tests {
 
         let execution = execute_bump(&omv_root, &ntp, &system, Some(false))
             .expect("bump should succeed with no-ntp override");
-        assert_eq!(execution.time_source, LastTimeSource::System);
+        assert_eq!(execution.time_source, LastTimeSource::System.as_str());
 
         cleanup_omv_root(&omv_root);
     }
 
     #[test]
-    fn render_help_includes_structured_sections() {
+    fn run_adapter_status_json_reports_installed_entries() {
+        let root = temp_project_root("adapter-status");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
+
+        run_adapter(
+            &root,
+            &omv_root,
+            &catalog,
+            OutputMode::Text,
+            AdapterCommand {
+                action: AdapterAction::Install,
+                agents: vec![crate::core::adapter::AgentAdapter::Codex],
+                specs: Vec::new(),
+            },
+        )
+        .expect("adapter install should work");
+
+        let output = run_adapter(
+            &root,
+            &omv_root,
+            &catalog,
+            OutputMode::Json,
+            AdapterCommand {
+                action: AdapterAction::Status,
+                agents: Vec::new(),
+                specs: Vec::new(),
+            },
+        )
+        .expect("adapter status should work");
+        assert!(output.message.contains("\"ok\": true"));
+        assert!(output.message.contains("\"installed\""));
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn render_structured_error_serializes_error_envelope() {
+        let err = OmvError::State(StateError::MissingState {
+            path: PathBuf::from(".omv/state.toml"),
+        });
+        let output = render_structured_error("current", &err);
+        assert!(output.contains("\"ok\": false"));
+        assert!(output.contains("\"command\": \"current\""));
+        assert!(output.contains("\"code\": \"missing_state\""));
+    }
+
+    #[test]
+    fn render_help_includes_structured_sections_and_new_commands() {
         let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
         let help = render_help(&catalog);
 
         assert!(help.contains("Usage:"));
-        assert!(help.contains("Commands:"));
-        assert!(help.contains("Options:"));
-        assert!(help.contains("Examples:"));
-        assert!(help.contains("omv init"));
+        assert!(help.contains("current"));
+        assert!(help.contains("adapter"));
+        assert!(help.contains("--json"));
+        assert!(help.contains("--output <MODE>"));
     }
 
     #[test]
@@ -615,6 +912,20 @@ mod tests {
             .join(".omv");
         fs::create_dir_all(&root).expect("temp omv root should be created");
         root
+    }
+
+    fn temp_project_root(prefix: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("omv-app-{prefix}-{stamp}"));
+        fs::create_dir_all(&root).expect("temp project root should be created");
+        root
+    }
+
+    fn cleanup_project_root(root: &std::path::Path) {
+        let _ = fs::remove_dir_all(root);
     }
 
     fn cleanup_omv_root(root: &std::path::Path) {

@@ -9,7 +9,7 @@
 | Guide | Purpose | When to Use |
 |-------|---------|-------------|
 | [Code Reuse Thinking Guide](./code-reuse-thinking-guide.md) | Prevent duplicated version, i18n, and sync logic | When adding helpers, formatters, or adapters |
-| [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Trace data across `.omv`, CLI/TUI, time validation, and target sync | Features spanning 3+ layers or touching persisted contracts |
+| [Cross-Layer Thinking Guide](./cross-layer-thinking-guide.md) | Trace data across `.omv`, `.omv/ai`, CLI/TUI, automation JSON, and target sync | Features spanning 3+ layers or touching persisted contracts |
 
 ## Quick Reference
 
@@ -18,7 +18,9 @@ change touches any of:
 
 - date/time validation
 - `.omv` persistence
+- `.omv/ai` projection
 - target synchronization
+- structured JSON contracts
 - i18n preference and user-facing output
 - CLI/TUI plus backend behavior together
 

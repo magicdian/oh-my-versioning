@@ -7,9 +7,10 @@
 ## Overview
 
 Keep pure versioning/time/storage logic separate from CLI parsing, TUI
-rendering, and language-target adapters. The goal is to let `omv bump`,
-`omv sync`, and `omv init` share one backend core instead of re-implementing
-the same behavior in different entry points.
+rendering, language-target adapters, and AI/spec projection adapters. The goal
+is to let `omv bump`, `omv sync`, `omv current`, and `omv adapter ...` share
+one backend core instead of re-implementing the same behavior in different
+entry points.
 
 ## Directory Layout
 
@@ -18,7 +19,9 @@ src/
 ├── main.rs                  # CLI entrypoint
 ├── cli/                     # clap commands, flags, dispatch
 ├── app/                     # orchestration layer for commands/use-cases
+├── adapter.rs               # OMV AI/spec contract generation + adapter install flow
 ├── core/
+│   ├── adapter.rs           # adapter enums and install-mode types
 │   ├── versioning/          # date/build-number rules and output strategies
 │   ├── time/                # system time, NTP, manual confirmation logic
 │   ├── locale/              # locale selection and normalization
@@ -27,6 +30,7 @@ src/
 │   ├── config.rs            # .omv/config.toml load/save
 │   ├── state.rs             # .omv/state.toml load/save
 │   ├── targets.rs           # .omv/targets.toml load/save
+│   ├── adapters.rs          # .omv/adapters.toml load/save
 │   └── atomic.rs            # write-temp + rename helpers
 ├── sync/
 │   ├── mod.rs               # target sync coordinator
@@ -54,6 +58,20 @@ tests/
 └── snapshots/
 ```
 
+Generated project artifacts:
+
+```text
+.omv/
+├── config.toml
+├── state.toml
+├── targets.toml
+├── adapters.toml
+└── ai/
+    ├── contract.json
+    ├── instructions.md
+    └── adapters/
+```
+
 ## Module Organization
 
 ### Rule: Keep the core pure
@@ -67,8 +85,8 @@ Command handlers should compose:
 
 1. storage reads
 2. core logic
-3. adapter sync
-4. localized user output
+3. adapter sync or projection
+4. localized or structured output
 
 They should not duplicate version-bump or time-validation logic inline.
 
@@ -76,6 +94,12 @@ They should not duplicate version-bump or time-validation logic inline.
 
 Any file-format or manifest mutation belongs in `src/sync/<language>.rs`, never
 inside CLI parsing or TUI event handling.
+
+### Rule: Keep AI/spec adapter projection separate from language sync
+
+`src/adapter.rs` owns generation of `.omv/ai/*` and projection into host files
+such as `AGENTS.md`, `CLAUDE.md`, or spec-framework guides. It must not own
+version math or language-manifest edits.
 
 ### Rule: Shared path resolution belongs in storage/app helpers
 
@@ -91,7 +115,7 @@ in reusable modules. Do not re-derive them in every command.
 - Adapter traits: `<Domain>Noun`, for example `TargetSyncAdapter`,
   `TimeSource`
 - TOML schema types should mirror file names:
-  `OmvConfig`, `OmvState`, `OmvTargetRecord`
+  `OmvConfig`, `OmvState`, `OmvTargetRecord`, `OmvAdapters`
 
 ## Examples
 
@@ -101,6 +125,7 @@ Use these boundaries as the baseline pattern:
 - locale catalog loading lives in `src/i18n.rs`
 - `.omv` persistence lives in `src/storage/`
 - language-specific sync never bypasses `src/sync/`
+- agent/spec host projection never bypasses `src/adapter.rs`
 
 ## Common Mistakes
 
@@ -116,3 +141,8 @@ TUI draft edits belong in `src/ui/state/`; persisted `.omv` records belong in
 ### Don't: Treat generated runtime export files as canonical data
 
 They are outputs. `.omv` remains the truth.
+
+### Don't: Mix host-framework projection with canonical OMV instructions
+
+Detailed rules belong under `.omv/ai/*`; host files should stay thin and
+replaceable.

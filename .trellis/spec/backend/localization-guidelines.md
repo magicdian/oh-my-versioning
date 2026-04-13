@@ -17,6 +17,10 @@ broad pattern used in the referenced `bridgingio` code:
 
 The code must not hardcode operator-facing strings.
 
+Machine-facing surfaces such as JSON envelope keys and canonical `.omv/ai/*`
+artifacts may stay stable and English-first when localization would reduce
+automation interoperability.
+
 ## Scenario: Shared CLI/TUI Catalogs
 
 ### 1. Scope / Trigger
@@ -73,6 +77,10 @@ Rules:
 - format variables must use named placeholders such as `{version}`
 - raw user-facing text literals in Rust source are forbidden except in tests
   explicitly validating fallback behavior
+- JSON field names such as `ok`, `command`, `data`, and `error` are contract
+  keys, not localized copy
+- `.omv/ai/instructions.md` and adapter source templates are canonical OMV
+  contract artifacts, not operator locale surfaces
 
 ### 4. Validation & Error Matrix
 
@@ -109,12 +117,14 @@ Rules:
 - fallback test where `zh-CN` omits a key and `en-US` supplies it
 - config round-trip test preserving locale preference
 - command/output snapshot tests for at least one English and one Chinese path
+- tests proving JSON output keys stay stable across locales
 
 Assertion points:
 
 - no unsupported locale is persisted
 - both CLI help and TUI status rendering pull from the same catalog API
 - placeholder replacement works for localized templates
+- structured JSON does not translate contract keys
 
 ### 7. Wrong vs Correct
 
