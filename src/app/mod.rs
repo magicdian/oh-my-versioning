@@ -39,10 +39,11 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
 
     let locale = resolve_locale_for_root(&omv_root, cli.locale_override.as_deref())?;
     let catalog = i18n::load_catalog(&locale)?;
+    let ntp_override = cli.ntp_override;
 
     match cli.command {
         Command::Init => run_init(&omv_root, &catalog, &locale),
-        Command::Bump => run_bump(&omv_root, &catalog),
+        Command::Bump => run_bump(&omv_root, &catalog, ntp_override),
         Command::Sync => run_sync(&omv_root, &catalog),
         Command::Help => Ok(AppOutput {
             message: render_help(&catalog),
@@ -73,12 +74,14 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.options.help")),
         format!("  {}", catalog.t("cli.help.options.version")),
         format!("  {}", catalog.t("cli.help.options.locale")),
+        format!("  {}", catalog.t("cli.help.options.no_ntp")),
         String::new(),
         catalog.t("cli.help.examples.title"),
         format!("  {}", catalog.t("cli.help.examples.init")),
         format!("  {}", catalog.t("cli.help.examples.bump")),
         format!("  {}", catalog.t("cli.help.examples.sync")),
         format!("  {}", catalog.t("cli.help.examples.locale")),
+        format!("  {}", catalog.t("cli.help.examples.no_ntp")),
     ]
     .join("\n")
 }
@@ -116,22 +119,28 @@ fn run_init(omv_root: &Path, catalog: &Catalog, locale: &str) -> Result<AppOutpu
     let discovery = crate::ui::discovery::discover_languages(project_root);
 
     let draft = if std::io::stdout().is_terminal() {
-        crate::ui::runtime::run_init_tui(catalog, &discovery)?
+        crate::ui::runtime::run_init_tui(catalog, &discovery, locale)?
     } else {
-        init_ui_state::UiApp::from_discovery(&discovery).draft
+        let mut draft = init_ui_state::UiApp::from_discovery(&discovery).draft;
+        draft.set_locale(OperatorLocale::from_input(locale));
+        draft
     };
 
-    persist_init_state(omv_root, locale, &draft)?;
+    persist_init_state(omv_root, &draft)?;
 
     Ok(AppOutput {
         message: catalog.t("init.result.saved"),
     })
 }
 
-fn run_bump(omv_root: &Path, catalog: &Catalog) -> Result<AppOutput, OmvError> {
+fn run_bump(
+    omv_root: &Path,
+    catalog: &Catalog,
+    ntp_override: Option<bool>,
+) -> Result<AppOutput, OmvError> {
     let ntp = NtpTimeSource::default();
     let system = SystemTimeSource;
-    let execution = execute_bump(omv_root, &ntp, &system)?;
+    let execution = execute_bump(omv_root, &ntp, &system, ntp_override)?;
 
     Ok(AppOutput {
         message: catalog.tf(
@@ -213,8 +222,12 @@ fn execute_bump(
     omv_root: &Path,
     ntp_source: &dyn TimeSource,
     system_source: &dyn TimeSource,
+    ntp_override: Option<bool>,
 ) -> Result<BumpExecution, OmvError> {
-    let config = storage::config::load_config(omv_root)?;
+    let mut config = storage::config::load_config(omv_root)?;
+    if let Some(enabled) = ntp_override {
+        config.ntp_enabled = enabled;
+    }
     let state = storage::state::load_state(omv_root)?;
 
     let validated =
@@ -252,11 +265,13 @@ fn execute_sync(omv_root: &Path) -> Result<SyncExecution, OmvError> {
     })
 }
 
-fn persist_init_state(omv_root: &Path, locale: &str, draft: &InitDraft) -> Result<(), OmvError> {
+fn persist_init_state(omv_root: &Path, draft: &InitDraft) -> Result<(), OmvError> {
     std::fs::create_dir_all(omv_root)?;
 
     let mut config = load_config_if_exists(omv_root)?.unwrap_or_default();
-    config.locale = OperatorLocale::from_input(locale);
+    config.locale = draft.locale;
+    config.timezone = draft.timezone_string();
+    config.build_policy = draft.build_policy;
     storage::config::save_config(omv_root, &config)?;
 
     let targets = build_targets_from_draft(draft);
@@ -331,7 +346,8 @@ mod tests {
     use crate::core::schema::{OmvConfig, OmvState};
     use crate::core::target::TargetLanguage;
     use crate::core::time::{LastTimeSource, TimeSource};
-    use crate::errors::OmvError;
+    use crate::core::versioning::BuildPolicy;
+    use crate::errors::{NtpError, OmvError};
     use crate::storage;
     use crate::ui::state::draft::InitDraft;
 
@@ -389,12 +405,18 @@ mod tests {
     #[test]
     fn persist_init_state_writes_targets_and_initial_state() {
         let omv_root = temp_omv_root("persist-init");
-        let draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust, TargetLanguage::Go]);
+        let mut draft =
+            InitDraft::from_detected_languages(&[TargetLanguage::Rust, TargetLanguage::Go]);
+        draft.set_locale(OperatorLocale::ZhCn);
+        draft.set_timezone_offset_hours(8);
+        draft.set_build_policy(BuildPolicy::Continuous);
 
-        persist_init_state(&omv_root, "zh-CN", &draft).expect("init state should persist");
+        persist_init_state(&omv_root, &draft).expect("init state should persist");
 
         let config = storage::config::load_config(&omv_root).expect("config should load");
         assert_eq!(config.locale, OperatorLocale::ZhCn);
+        assert_eq!(config.timezone, "UTC+8");
+        assert_eq!(config.build_policy, BuildPolicy::Continuous);
 
         let targets = storage::targets::load_targets(&omv_root).expect("targets should load");
         assert_eq!(targets.targets.len(), TargetLanguage::all().len());
@@ -420,8 +442,9 @@ mod tests {
     #[test]
     fn execute_sync_writes_manifests_runtime_exports_and_skills() {
         let omv_root = temp_omv_root("execute-sync");
-        let draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust]);
-        persist_init_state(&omv_root, "en-US", &draft).expect("init state should persist");
+        let mut draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust]);
+        draft.set_locale(OperatorLocale::EnUs);
+        persist_init_state(&omv_root, &draft).expect("init state should persist");
 
         let mut state = storage::state::load_state(&omv_root).expect("state should load");
         state.last_issued_version = "2604.13.9".to_owned();
@@ -470,7 +493,7 @@ mod tests {
             date: LogicalDate::parse_iso("2026-04-12").expect("date should parse"),
         };
 
-        let execution = execute_bump(&omv_root, &ntp, &system).expect("bump should succeed");
+        let execution = execute_bump(&omv_root, &ntp, &system, None).expect("bump should succeed");
         assert_eq!(execution.version, "2604.13.2");
         assert_eq!(execution.time_source, LastTimeSource::Ntp);
 
@@ -506,8 +529,48 @@ mod tests {
             date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
         };
 
-        let err = execute_bump(&omv_root, &ntp, &system).expect_err("future date must fail");
+        let err = execute_bump(&omv_root, &ntp, &system, None).expect_err("future date must fail");
         assert!(matches!(err, OmvError::Time(_)));
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_bump_can_skip_ntp_via_runtime_override() {
+        let omv_root = temp_omv_root("execute-bump-no-ntp");
+        let config = OmvConfig {
+            ntp_enabled: true,
+            ..OmvConfig::default()
+        };
+        storage::config::save_config(&omv_root, &config).expect("config should save");
+        let state = OmvState {
+            logical_date: "2026-04-13".to_owned(),
+            build_number: 1,
+            ..OmvState::default()
+        };
+        storage::state::save_state(&omv_root, &state).expect("state should save");
+
+        struct FailingNtp;
+        impl TimeSource for FailingNtp {
+            fn source(&self) -> LastTimeSource {
+                LastTimeSource::Ntp
+            }
+            fn today(&self) -> Result<LogicalDate, OmvError> {
+                Err(OmvError::Ntp(NtpError::Unavailable(
+                    "forced failure".to_owned(),
+                )))
+            }
+        }
+
+        let ntp = FailingNtp;
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+
+        let execution = execute_bump(&omv_root, &ntp, &system, Some(false))
+            .expect("bump should succeed with no-ntp override");
+        assert_eq!(execution.time_source, LastTimeSource::System);
 
         cleanup_omv_root(&omv_root);
     }

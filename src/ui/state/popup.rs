@@ -9,10 +9,14 @@ pub struct PopupState {
 
 impl PopupState {
     pub fn open(kind: PopupKind) -> Self {
+        Self::open_with_selection(kind, 0)
+    }
+
+    pub fn open_with_selection(kind: PopupKind, selected_index: usize) -> Self {
         Self {
             kind,
             open: true,
-            selected_index: 0,
+            selected_index,
         }
     }
 }

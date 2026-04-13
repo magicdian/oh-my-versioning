@@ -56,7 +56,8 @@ Rules:
 
 - `locale` must be normalized to `en-US` or `zh-CN`
 - `timezone` must be stored in canonical form chosen by the implementation
-- transient CLI flags such as "skip NTP for this run" must not be persisted
+- transient CLI flags such as `--no-ntp` (skip NTP for current run) must not
+  be persisted
 
 #### `.omv/state.toml`
 

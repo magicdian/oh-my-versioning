@@ -24,6 +24,7 @@ bugs.
 - localized status/help/confirm text
 - explicit dirty-state tracking based on current draft vs baseline
 - viewport guard for sizes below `80x24`
+- popup list virtualization/windowing when choice count exceeds popup viewport
 
 ## Testing Requirements
 
@@ -32,6 +33,7 @@ bugs.
 - locale rendering tests for English and Chinese
 - init flow tests for auto-detected languages and manual toggles
 - pre-project strategy popup tests
+- choice-list popup tests proving selected item remains visible when scrolling
 
 ## Code Review Checklist
 

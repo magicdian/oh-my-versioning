@@ -13,6 +13,7 @@ pub enum Command {
 pub struct Cli {
     pub command: Command,
     pub locale_override: Option<String>,
+    pub ntp_override: Option<bool>,
 }
 
 pub fn parse_from_env() -> Result<Cli, OmvError> {
@@ -26,11 +27,16 @@ where
     let mut args = args.into_iter();
     let mut command = Command::Help;
     let mut locale_override = None;
+    let mut ntp_override = None;
 
     while let Some(arg) = args.next() {
         if arg == "--locale" {
             let value = args.next().ok_or(CliError::MissingLocaleValue)?;
             locale_override = Some(value);
+            continue;
+        }
+        if arg == "--no-ntp" {
+            ntp_override = Some(false);
             continue;
         }
 
@@ -47,6 +53,7 @@ where
     Ok(Cli {
         command,
         locale_override,
+        ntp_override,
     })
 }
 
@@ -72,17 +79,27 @@ mod tests {
 
         assert_eq!(cli.command, Command::Init);
         assert_eq!(cli.locale_override.as_deref(), Some("zh-CN"));
+        assert_eq!(cli.ntp_override, None);
     }
 
     #[test]
     fn defaults_to_help_without_args() {
         let cli = parse_args(Vec::<String>::new()).expect("empty args should parse");
         assert_eq!(cli.command, Command::Help);
+        assert_eq!(cli.ntp_override, None);
     }
 
     #[test]
     fn returns_error_when_locale_value_missing() {
         let err = parse_args(vec!["--locale".to_owned()]).expect_err("missing locale must fail");
         assert!(matches!(err, OmvError::Cli(CliError::MissingLocaleValue)));
+    }
+
+    #[test]
+    fn parses_no_ntp_flag() {
+        let cli = parse_args(vec!["bump".to_owned(), "--no-ntp".to_owned()])
+            .expect("no-ntp flag should parse");
+        assert_eq!(cli.command, Command::Bump);
+        assert_eq!(cli.ntp_override, Some(false));
     }
 }

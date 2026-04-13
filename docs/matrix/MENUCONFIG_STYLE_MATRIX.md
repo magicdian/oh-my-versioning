@@ -135,6 +135,7 @@ New `omv` menu fields should match one of these mappings.
 | --- | --- | --- | --- | --- | --- |
 | Init Root | detected repository root | `info-row` | `---` | `--- Project Root = value` | none |
 | Init Root | detection summary | `info-row` | `---` | `--- Detection = value` | none |
+| Init Root | operator language | `field-entry-row` + `choice-list-modal` | blank prefix column | `Language (value) --->` | `Enter` opens choice popup |
 | Init Root | timezone | `field-entry-row` + `choice-list-modal` | blank prefix column | `Timezone (value) --->` | `Enter` opens choice popup |
 | Init Root | project profile recommendation | `field-entry-row` + `choice-list-modal` | blank prefix column | `Project Profile (value) --->` | `Enter` opens choice popup |
 | Init Root | version output mode | `field-entry-row` + `choice-list-modal` | blank prefix column | `Version Output (value) --->` | `Enter` opens choice popup |
@@ -157,6 +158,7 @@ New `omv` menu fields should match one of these mappings.
 | Init Need | Popup Template | Contract |
 | --- | --- | --- |
 | timezone selection | `choice-list-modal` | user chooses timezone; recommended default may be preselected |
+| operator language selection | `choice-list-modal` | user chooses `English` or `中文`; selected locale persists to config |
 | project profile selection | `choice-list-modal` | profile controls recommendation text, not hidden behavior |
 | build policy selection | `choice-list-modal` | `daily-reset` and `continuous` must both be visible |
 | pre-project strategy selection | `choice-list-modal` | must offer all three user-selectable strategies before init completes |
@@ -202,6 +204,9 @@ later `omv sync` behavior is explainable and reproducible.
   - the right-side `--->` suffix when present
 - Truncate the middle text with `...` or an equivalent controlled ellipsis.
 - Status/help text may wrap within their own blocks.
+- For `choice-list-modal` with long option sets (for example timezone lists),
+  render a scrolling window: only visible rows are rendered, and current
+  selection must remain in the window while moving `Up/Down`.
 
 ## Known Current Deviations
 

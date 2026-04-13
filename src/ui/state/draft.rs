@@ -1,4 +1,9 @@
+use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
+use crate::core::versioning::BuildPolicy;
+
+pub const MIN_TIMEZONE_OFFSET_HOURS: i8 = -12;
+pub const MAX_TIMEZONE_OFFSET_HOURS: i8 = 14;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetDraft {
@@ -11,6 +16,9 @@ pub struct TargetDraft {
 pub struct InitDraft {
     pub targets: Vec<TargetDraft>,
     pub pre_project_strategy: PreProjectStrategy,
+    pub timezone_offset_hours: i8,
+    pub build_policy: BuildPolicy,
+    pub locale: OperatorLocale,
 }
 
 impl Default for InitDraft {
@@ -33,6 +41,9 @@ impl InitDraft {
         Self {
             targets,
             pre_project_strategy: PreProjectStrategy::IntentOnly,
+            timezone_offset_hours: 0,
+            build_policy: BuildPolicy::DailyReset,
+            locale: OperatorLocale::EnUs,
         }
     }
 
@@ -55,6 +66,40 @@ impl InitDraft {
         }
     }
 
+    pub fn set_timezone_offset_hours(&mut self, hours: i8) {
+        self.timezone_offset_hours =
+            hours.clamp(MIN_TIMEZONE_OFFSET_HOURS, MAX_TIMEZONE_OFFSET_HOURS);
+    }
+
+    pub fn timezone_popup_index(&self) -> usize {
+        (self.timezone_offset_hours - MIN_TIMEZONE_OFFSET_HOURS) as usize
+    }
+
+    pub fn set_timezone_from_popup_index(&mut self, index: usize) {
+        let max_index = (MAX_TIMEZONE_OFFSET_HOURS - MIN_TIMEZONE_OFFSET_HOURS) as usize;
+        let clamped = index.min(max_index) as i8;
+        self.timezone_offset_hours = MIN_TIMEZONE_OFFSET_HOURS + clamped;
+    }
+
+    pub fn timezone_string(&self) -> String {
+        format_utc_offset(self.timezone_offset_hours)
+    }
+
+    pub fn set_build_policy(&mut self, build_policy: BuildPolicy) {
+        self.build_policy = build_policy;
+    }
+
+    pub fn set_locale(&mut self, locale: OperatorLocale) {
+        self.locale = locale;
+    }
+
+    pub fn locale_popup_index(&self) -> usize {
+        match self.locale {
+            OperatorLocale::EnUs => 0,
+            OperatorLocale::ZhCn => 1,
+        }
+    }
+
     pub fn enabled_languages(&self) -> Vec<TargetLanguage> {
         self.targets
             .iter()
@@ -64,9 +109,19 @@ impl InitDraft {
     }
 }
 
+fn format_utc_offset(offset: i8) -> String {
+    if offset >= 0 {
+        format!("UTC+{offset}")
+    } else {
+        format!("UTC{offset}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::core::locale::OperatorLocale;
     use crate::core::target::{PreProjectStrategy, TargetLanguage};
+    use crate::core::versioning::BuildPolicy;
 
     use super::InitDraft;
 
@@ -118,5 +173,32 @@ mod tests {
             .find(|target| target.language == TargetLanguage::Java)
             .expect("java target should exist");
         assert_eq!(java_target.strategy, PreProjectStrategy::IntentOnly);
+    }
+
+    #[test]
+    fn timezone_popup_index_round_trip_uses_canonical_utc_format() {
+        let mut draft = InitDraft::default();
+        draft.set_timezone_from_popup_index(20);
+
+        assert_eq!(draft.timezone_string(), "UTC+8");
+        assert_eq!(draft.timezone_popup_index(), 20);
+    }
+
+    #[test]
+    fn build_policy_is_mutable_in_draft() {
+        let mut draft = InitDraft::default();
+        assert_eq!(draft.build_policy, BuildPolicy::DailyReset);
+
+        draft.set_build_policy(BuildPolicy::Continuous);
+        assert_eq!(draft.build_policy, BuildPolicy::Continuous);
+    }
+
+    #[test]
+    fn locale_popup_index_tracks_selected_locale() {
+        let mut draft = InitDraft::default();
+        assert_eq!(draft.locale_popup_index(), 0);
+
+        draft.set_locale(OperatorLocale::ZhCn);
+        assert_eq!(draft.locale_popup_index(), 1);
     }
 }

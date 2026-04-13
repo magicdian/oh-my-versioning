@@ -1,7 +1,11 @@
+use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
+use crate::core::versioning::BuildPolicy;
 use crate::ui::discovery::DiscoveryResult;
 use crate::ui::event::{KeyInput, UiAction, map_key_to_action};
-use crate::ui::screen::popup::PopupKind;
+use crate::ui::screen::popup::{
+    PopupKind, build_policy_choices, locale_choices, timezone_choice_count,
+};
 use crate::ui::state::draft::InitDraft;
 use crate::ui::state::focus::FocusTarget;
 use crate::ui::state::popup::PopupState;
@@ -17,6 +21,9 @@ pub enum UiMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitRootAction {
     LanguageSupport,
+    Locale,
+    Timezone,
+    BuildPolicy,
     Initialize,
 }
 
@@ -53,7 +60,7 @@ impl UiApp {
 
     pub fn visible_rows_len(&self) -> usize {
         match self.mode {
-            UiMode::InitRoot => 2,
+            UiMode::InitRoot => 5,
             UiMode::LanguageSupport => self.draft.targets.len() + 1,
             UiMode::Review => 1,
         }
@@ -61,7 +68,10 @@ impl UiApp {
 
     pub fn row_template_at_cursor(&self) -> RowTemplate {
         match self.mode {
-            UiMode::InitRoot => RowTemplate::Action,
+            UiMode::InitRoot => match self.menu_index {
+                1..=3 => RowTemplate::FieldEntry,
+                _ => RowTemplate::Action,
+            },
             UiMode::LanguageSupport => {
                 if self.menu_index < self.draft.targets.len() {
                     RowTemplate::Toggle
@@ -91,7 +101,10 @@ impl UiApp {
 
         match self.menu_index {
             0 => Some(InitRootAction::LanguageSupport),
-            1 => Some(InitRootAction::Initialize),
+            1 => Some(InitRootAction::Locale),
+            2 => Some(InitRootAction::Timezone),
+            3 => Some(InitRootAction::BuildPolicy),
+            4 => Some(InitRootAction::Initialize),
             _ => None,
         }
     }
@@ -145,7 +158,34 @@ impl UiApp {
     }
 
     pub fn open_pre_project_strategy_popup(&mut self) {
-        self.popup = Some(PopupState::open(PopupKind::PreProjectStrategy));
+        self.popup = Some(PopupState::open_with_selection(
+            PopupKind::PreProjectStrategy,
+            self.strategy_popup_index(),
+        ));
+        self.focus = FocusTarget::Popup;
+    }
+
+    pub fn open_timezone_popup(&mut self) {
+        self.popup = Some(PopupState::open_with_selection(
+            PopupKind::Timezone,
+            self.draft.timezone_popup_index(),
+        ));
+        self.focus = FocusTarget::Popup;
+    }
+
+    pub fn open_locale_popup(&mut self) {
+        self.popup = Some(PopupState::open_with_selection(
+            PopupKind::Locale,
+            self.draft.locale_popup_index(),
+        ));
+        self.focus = FocusTarget::Popup;
+    }
+
+    pub fn open_build_policy_popup(&mut self) {
+        self.popup = Some(PopupState::open_with_selection(
+            PopupKind::BuildPolicy,
+            self.build_policy_popup_index(),
+        ));
         self.focus = FocusTarget::Popup;
     }
 
@@ -168,7 +208,7 @@ impl UiApp {
             UiAction::Toggle => {
                 if popup_open {
                     if let Some(state) = self.popup {
-                        self.apply_popup_choice(state.selected_index);
+                        self.apply_popup_choice(state.kind, state.selected_index);
                     }
                     return UiAction::Confirm;
                 }
@@ -179,7 +219,7 @@ impl UiApp {
             UiAction::Confirm => {
                 if popup_open {
                     if let Some(state) = self.popup {
-                        self.apply_popup_choice(state.selected_index);
+                        self.apply_popup_choice(state.kind, state.selected_index);
                     }
                 } else if matches!(row_template, RowTemplate::Action)
                     && self.mode == UiMode::LanguageSupport
@@ -200,16 +240,61 @@ impl UiApp {
     fn popup_choice_count(&self, kind: PopupKind) -> usize {
         match kind {
             PopupKind::PreProjectStrategy => 3,
+            PopupKind::Timezone => timezone_choice_count(),
+            PopupKind::BuildPolicy => build_policy_choices().len(),
+            PopupKind::Locale => locale_choices().len(),
         }
     }
 
-    fn apply_popup_choice(&mut self, selected_index: usize) {
-        let strategy = match selected_index {
-            1 => PreProjectStrategy::InitExportTemplates,
-            2 => PreProjectStrategy::CreateMinimalScaffold,
-            _ => PreProjectStrategy::IntentOnly,
-        };
-        self.confirm_pre_project_strategy(strategy);
+    fn apply_popup_choice(&mut self, kind: PopupKind, selected_index: usize) {
+        match kind {
+            PopupKind::PreProjectStrategy => {
+                let strategy = match selected_index {
+                    1 => PreProjectStrategy::InitExportTemplates,
+                    2 => PreProjectStrategy::CreateMinimalScaffold,
+                    _ => PreProjectStrategy::IntentOnly,
+                };
+                self.confirm_pre_project_strategy(strategy);
+            }
+            PopupKind::Timezone => {
+                self.draft.set_timezone_from_popup_index(selected_index);
+                self.popup = None;
+                self.focus = FocusTarget::Menu;
+            }
+            PopupKind::BuildPolicy => {
+                let build_policy = match selected_index {
+                    1 => BuildPolicy::Continuous,
+                    _ => BuildPolicy::DailyReset,
+                };
+                self.draft.set_build_policy(build_policy);
+                self.popup = None;
+                self.focus = FocusTarget::Menu;
+            }
+            PopupKind::Locale => {
+                let locale = match selected_index {
+                    1 => OperatorLocale::ZhCn,
+                    _ => OperatorLocale::EnUs,
+                };
+                self.draft.set_locale(locale);
+                self.popup = None;
+                self.focus = FocusTarget::Menu;
+            }
+        }
+    }
+
+    fn strategy_popup_index(&self) -> usize {
+        match self.draft.pre_project_strategy {
+            PreProjectStrategy::IntentOnly => 0,
+            PreProjectStrategy::InitExportTemplates => 1,
+            PreProjectStrategy::CreateMinimalScaffold => 2,
+        }
+    }
+
+    fn build_policy_popup_index(&self) -> usize {
+        match self.draft.build_policy {
+            BuildPolicy::DailyReset => 0,
+            BuildPolicy::Continuous => 1,
+        }
     }
 
     fn handle_escape(&mut self) {
@@ -232,7 +317,9 @@ impl UiApp {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::locale::OperatorLocale;
     use crate::core::target::{PreProjectStrategy, TargetLanguage};
+    use crate::core::versioning::BuildPolicy;
     use crate::ui::app::{UiApp, UiMode};
     use crate::ui::discovery::DiscoveryResult;
     use crate::ui::event::KeyInput;
@@ -322,6 +409,51 @@ mod tests {
         );
         assert!(app.popup.is_none());
         assert_eq!(app.focus, FocusTarget::Menu);
+    }
+
+    #[test]
+    fn popup_choice_persists_timezone_into_draft() {
+        let mut app = UiApp::default();
+        app.open_timezone_popup();
+
+        if let Some(mut popup) = app.popup {
+            popup.selected_index = 20;
+            app.popup = Some(popup);
+        }
+
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        assert_eq!(app.draft.timezone_string(), "UTC+8");
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn popup_choice_persists_build_policy_into_draft() {
+        let mut app = UiApp::default();
+        app.open_build_policy_popup();
+
+        if let Some(mut popup) = app.popup {
+            popup.selected_index = 1;
+            app.popup = Some(popup);
+        }
+
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        assert_eq!(app.draft.build_policy, BuildPolicy::Continuous);
+        assert!(app.popup.is_none());
+    }
+
+    #[test]
+    fn popup_choice_persists_locale_into_draft() {
+        let mut app = UiApp::default();
+        app.open_locale_popup();
+
+        if let Some(mut popup) = app.popup {
+            popup.selected_index = 1;
+            app.popup = Some(popup);
+        }
+
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        assert_eq!(app.draft.locale, OperatorLocale::ZhCn);
+        assert!(app.popup.is_none());
     }
 
     #[test]

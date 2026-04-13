@@ -12,16 +12,22 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 
+use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
+use crate::core::versioning::BuildPolicy;
 use crate::errors::{CliError, OmvError};
 use crate::i18n::Catalog;
 use crate::ui::app::{InitRootAction, UiApp, UiMode};
 use crate::ui::discovery::DiscoveryResult;
 use crate::ui::event::{KeyInput, UiAction};
-use crate::ui::screen::popup::strategy_choices;
+use crate::ui::screen::popup::{PopupKind, build_policy_choices, locale_choices, strategy_choices};
 use crate::ui::state::draft::InitDraft;
 
-pub fn run_init_tui(catalog: &Catalog, discovery: &DiscoveryResult) -> Result<InitDraft, OmvError> {
+pub fn run_init_tui(
+    catalog: &Catalog,
+    discovery: &DiscoveryResult,
+    initial_locale: &str,
+) -> Result<InitDraft, OmvError> {
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen)?;
@@ -29,7 +35,7 @@ pub fn run_init_tui(catalog: &Catalog, discovery: &DiscoveryResult) -> Result<In
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_loop(&mut terminal, catalog, discovery);
+    let result = run_loop(&mut terminal, catalog, discovery, initial_locale);
 
     let _ = disable_raw_mode();
     let _ = execute!(terminal.backend_mut(), LeaveAlternateScreen);
@@ -42,8 +48,11 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     catalog: &Catalog,
     discovery: &DiscoveryResult,
+    initial_locale: &str,
 ) -> Result<InitDraft, OmvError> {
     let mut app = UiApp::from_discovery(discovery);
+    app.draft
+        .set_locale(OperatorLocale::from_input(initial_locale));
 
     loop {
         terminal.draw(|frame| draw_ui(frame, &app, catalog, discovery))?;
@@ -83,6 +92,9 @@ fn run_loop(
         if action == UiAction::Confirm && !app.popup_open() && app.mode == UiMode::InitRoot {
             match app.current_init_root_action() {
                 Some(InitRootAction::LanguageSupport) => app.enter_language_support(),
+                Some(InitRootAction::Locale) => app.open_locale_popup(),
+                Some(InitRootAction::Timezone) => app.open_timezone_popup(),
+                Some(InitRootAction::BuildPolicy) => app.open_build_policy_popup(),
                 Some(InitRootAction::Initialize) => return Ok(app.draft),
                 None => {}
             }
@@ -145,12 +157,12 @@ fn draw_ui(frame: &mut Frame, app: &UiApp, catalog: &Catalog, discovery: &Discov
         let popup_area = centered_rect(70, 40, area);
         frame.render_widget(Clear, popup_area);
 
-        let mut popup_lines = vec![
-            Line::from(catalog.t("init.popup.strategy.hint")),
-            Line::from(""),
-        ];
-        for (idx, strategy) in strategy_choices().iter().enumerate() {
-            let label = strategy_label(*strategy, catalog);
+        let choices = popup_choice_labels(popup.kind, catalog);
+        let viewport_size = popup_viewport_capacity(popup_area);
+        let (start, end) = popup_choice_window(choices.len(), popup.selected_index, viewport_size);
+
+        let mut popup_lines = vec![Line::from(popup_hint(popup.kind, catalog)), Line::from("")];
+        for (idx, label) in choices.iter().enumerate().skip(start).take(end - start) {
             if idx == popup.selected_index {
                 popup_lines.push(Line::from(format!("> {label}")));
             } else {
@@ -161,7 +173,7 @@ fn draw_ui(frame: &mut Frame, app: &UiApp, catalog: &Catalog, discovery: &Discov
         let popup_widget = Paragraph::new(popup_lines).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(catalog.t("init.popup.strategy.title")),
+                .title(popup_title(popup.kind, catalog)),
         );
         frame.render_widget(popup_widget, popup_area);
     }
@@ -199,6 +211,21 @@ fn menu_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
 
             vec![
                 format!("{language_support} --->"),
+                format!(
+                    "{} ({}) --->",
+                    catalog.t("init.root.locale"),
+                    locale_label(app.draft.locale, catalog)
+                ),
+                format!(
+                    "{} ({}) --->",
+                    catalog.t("init.root.timezone"),
+                    app.draft.timezone_string()
+                ),
+                format!(
+                    "{} ({}) --->",
+                    catalog.t("init.root.build_policy"),
+                    build_policy_label(app.draft.build_policy, catalog)
+                ),
                 format!("{} --->", catalog.t("init.root.initialize")),
             ]
         }
@@ -242,6 +269,87 @@ fn strategy_label(strategy: PreProjectStrategy, catalog: &Catalog) -> String {
     catalog.t(key)
 }
 
+fn popup_title(kind: PopupKind, catalog: &Catalog) -> String {
+    match kind {
+        PopupKind::PreProjectStrategy => catalog.t("init.popup.strategy.title"),
+        PopupKind::Timezone => catalog.t("init.popup.timezone.title"),
+        PopupKind::BuildPolicy => catalog.t("init.popup.build_policy.title"),
+        PopupKind::Locale => catalog.t("init.popup.locale.title"),
+    }
+}
+
+fn popup_hint(kind: PopupKind, catalog: &Catalog) -> String {
+    match kind {
+        PopupKind::PreProjectStrategy => catalog.t("init.popup.strategy.hint"),
+        PopupKind::Timezone => catalog.t("init.popup.timezone.hint"),
+        PopupKind::BuildPolicy => catalog.t("init.popup.build_policy.hint"),
+        PopupKind::Locale => catalog.t("init.popup.locale.hint"),
+    }
+}
+
+fn popup_choice_labels(kind: PopupKind, catalog: &Catalog) -> Vec<String> {
+    match kind {
+        PopupKind::PreProjectStrategy => strategy_choices()
+            .iter()
+            .map(|strategy| strategy_label(*strategy, catalog))
+            .collect(),
+        PopupKind::Timezone => (-12..=14).map(format_utc_offset).collect(),
+        PopupKind::BuildPolicy => build_policy_choices()
+            .iter()
+            .map(|policy| build_policy_label(*policy, catalog))
+            .collect(),
+        PopupKind::Locale => locale_choices()
+            .iter()
+            .map(|locale| locale_label(*locale, catalog))
+            .collect(),
+    }
+}
+
+fn build_policy_label(policy: BuildPolicy, catalog: &Catalog) -> String {
+    let key = match policy {
+        BuildPolicy::DailyReset => "init.popup.build_policy.daily_reset",
+        BuildPolicy::Continuous => "init.popup.build_policy.continuous",
+    };
+    catalog.t(key)
+}
+
+fn locale_label(locale: OperatorLocale, catalog: &Catalog) -> String {
+    let key = match locale {
+        OperatorLocale::EnUs => "init.popup.locale.en_us",
+        OperatorLocale::ZhCn => "init.popup.locale.zh_cn",
+    };
+    catalog.t(key)
+}
+
+fn format_utc_offset(hours: i32) -> String {
+    if hours >= 0 {
+        format!("UTC+{hours}")
+    } else {
+        format!("UTC{hours}")
+    }
+}
+
+fn popup_viewport_capacity(popup_area: Rect) -> usize {
+    let inner_height = popup_area.height.saturating_sub(2) as usize;
+    inner_height.saturating_sub(2).max(1)
+}
+
+fn popup_choice_window(total: usize, selected: usize, viewport: usize) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
+    }
+    if total <= viewport {
+        return (0, total);
+    }
+
+    let selected = selected.min(total - 1);
+    let mut start = selected.saturating_sub(viewport / 2);
+    if start + viewport > total {
+        start = total - viewport;
+    }
+    (start, start + viewport)
+}
+
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
@@ -264,10 +372,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::locale::OperatorLocale;
     use crate::core::target::TargetLanguage;
     use crate::ui::app::{UiApp, UiMode};
     use crate::ui::discovery::DiscoveryResult;
-    use crate::ui::runtime::{footer_text, menu_rows};
+    use crate::ui::runtime::{
+        footer_text, locale_label, menu_rows, popup_choice_labels, popup_choice_window,
+    };
+    use crate::ui::screen::popup::PopupKind;
 
     #[test]
     fn init_root_language_row_displays_enabled_count() {
@@ -285,6 +397,9 @@ mod tests {
             &["enabled", "2", "total", total.as_str()],
         );
         assert_eq!(rows[0], format!("{expected_label} --->"));
+        assert!(rows[1].contains("Language"));
+        assert!(rows[2].contains("Timezone"));
+        assert!(rows[3].contains("Build Policy"));
     }
 
     #[test]
@@ -297,5 +412,28 @@ mod tests {
 
         let footer = footer_text(&app, &catalog, "init.footer.no_manifest");
         assert!(footer.contains(catalog.t("init.footer.root_language_tip").as_str()));
+    }
+
+    #[test]
+    fn timezone_popup_contains_utc_zero_option() {
+        let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
+        let choices = popup_choice_labels(PopupKind::Timezone, &catalog);
+        assert!(choices.contains(&"UTC+0".to_owned()));
+    }
+
+    #[test]
+    fn locale_popup_contains_both_operator_languages() {
+        let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
+        let choices = popup_choice_labels(PopupKind::Locale, &catalog);
+        assert!(choices.contains(&locale_label(OperatorLocale::EnUs, &catalog)));
+        assert!(choices.contains(&locale_label(OperatorLocale::ZhCn, &catalog)));
+    }
+
+    #[test]
+    fn popup_choice_window_keeps_selected_item_visible() {
+        let (start, end) = popup_choice_window(27, 20, 8);
+        assert!(start <= 20);
+        assert!(end > 20);
+        assert_eq!(end - start, 8);
     }
 }

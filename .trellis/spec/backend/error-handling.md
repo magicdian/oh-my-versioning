@@ -50,6 +50,7 @@ fn validate_current_date(
     time_source: &dyn TimeSource,
 ) -> Result<ValidatedDate, OmvError>;
 fn render_error(locale: &Catalog, err: &OmvError) -> String;
+fn apply_runtime_ntp_override(config: &mut OmvConfig, no_ntp: bool);
 ```
 
 ### 3. Contracts
@@ -60,6 +61,8 @@ fn render_error(locale: &Catalog, err: &OmvError) -> String;
 - future-date conflicts must stop mutation and request explicit operator input
 - NTP failure does not justify mutating system time or silently trusting bad
   state
+- `--no-ntp` is a runtime-only override and must never persist into
+  `.omv/config.toml`
 
 ### 4. Validation & Error Matrix
 
@@ -67,6 +70,7 @@ fn render_error(locale: &Catalog, err: &OmvError) -> String;
 | --- | --- | --- |
 | unsupported locale in config | fail fast before command body | pick `en-US` or `zh-CN` |
 | NTP lookup fails and command requires strict validation | fail or request explicit skip flow | rerun with skip flag if appropriate |
+| `--no-ntp` passed for `omv bump` | use system-time source for this run only | rerun without flag to restore default NTP validation |
 | stored date > validated current date | block and ask for manual confirmation | operator confirms correct date |
 | target manifest missing for registered existing target | fail sync for that target | repair target or rerun init |
 | i18n key missing in selected locale | fall back to `en-US`; if absent there too, return key text | fix catalog parity |

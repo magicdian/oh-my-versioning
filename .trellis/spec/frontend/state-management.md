@@ -14,7 +14,7 @@ The project has three state categories and they must not be mixed.
 | --- | --- | --- |
 | Persistent state | `.omv/` files via backend storage | locale, timezone, build policy, targets |
 | Command runtime state | app/backend orchestration | detected manifests, validated current date, sync results |
-| TUI draft state | `src/ui/state/` | toggled languages, popup selection, unsaved edits |
+| TUI draft state | `src/ui/state/` | toggled languages, locale/timezone/build-policy selection, popup selection, unsaved edits |
 
 ## When to Use Global State
 

@@ -41,6 +41,19 @@ fn render_init_root(frame: &mut Frame, model: &InitRootViewModel);
 - center the content block; left-align text inside rows
 - keep row-template grammar exactly aligned with the matrix doc
 - preserve right-side `--->` suffix during truncation
+- for `choice-list-modal`, render a viewport window when options exceed popup
+  height; selected option must stay visible while moving `Up/Down`
+
+## Init Root Field Entries
+
+`omv init` root rows should keep field-entry semantics for operator-editable
+settings:
+
+- `Language (value) --->`
+- `Timezone (value) --->`
+- `Build Policy (value) --->`
+
+These rows open choice popups on `Enter`. They must not toggle on `Space`.
 
 ## Accessibility
 
