@@ -14,7 +14,9 @@
 
 ### Summary
 
-(Add summary)
+Implemented OMV's installable AI/spec adapter framework, added structured JSON
+automation contracts around `current`/`bump`, and documented the new cross-layer
+rules in README plus Trellis code-specs.
 
 ### Main Changes
 
