@@ -93,3 +93,51 @@ Added locale/timezone/build-policy init flow, scrollable choice popups, runtime 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Add OMV AI/spec adapter framework
+
+**Date**: 2026-04-13
+**Task**: Add OMV AI/spec adapter framework
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| CLI contract | Added `omv current`, structured `--json` / `--output json` envelopes, and structured runtime/CLI error output |
+| Adapter system | Added installable agent/spec adapters for Codex, Claude, OpenSpec, and Trellis with `.omv/adapters.toml` registry and `.omv/ai/*` canonical artifacts |
+| Docs/specs | Updated README and Trellis backend/guides specs so the new automation and adapter contracts are executable and discoverable |
+| Verification | Added adapter refresh regression coverage and reran `cargo fmt --check` plus full `cargo test` |
+
+**Updated Files**:
+- `src/adapter.rs`
+- `src/app/mod.rs`
+- `src/cli/mod.rs`
+- `src/errors.rs`
+- `src/storage/adapters.rs`
+- `README.md`
+- `.trellis/spec/backend/*.md`
+- `.trellis/spec/guides/*.md`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bda8a0a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
