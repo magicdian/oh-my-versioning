@@ -61,3 +61,35 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Finalize OMV init UX and close foundation tasks
+
+**Date**: 2026-04-13
+**Task**: Finalize OMV init UX and close foundation tasks
+
+### Summary
+
+Added locale/timezone/build-policy init flow, scrollable choice popups, runtime --no-ntp override, integration tests, and archived completed OMV foundation tasks.
+
+### Main Changes
+
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `71ee1e9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
