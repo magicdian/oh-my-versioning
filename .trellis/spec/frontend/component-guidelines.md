@@ -1,59 +1,67 @@
 # Component Guidelines
 
-> How components are built in this project.
+> How `ratatui` screens and widgets are built in `omv`.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's component conventions here.
-
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
-
-(To be filled by the team)
-
----
+Treat screens, rows, and popups as the component system for this project.
+Rendering must follow the canonical menuconfig contract in
+`docs/matrix/MENUCONFIG_STYLE_MATRIX.md`.
 
 ## Component Structure
 
-<!-- Standard structure of a component file -->
+Each screen should have:
 
-(To be filled by the team)
+1. typed input state
+2. a function that derives row descriptors
+3. a render function
+4. event handling that returns typed actions, not direct file writes
 
----
+Example shape:
+
+```rust
+struct InitRootViewModel { /* localized labels + row states */ }
+
+fn build_init_root_model(draft: &InitDraft, catalog: &Catalog) -> InitRootViewModel;
+fn render_init_root(frame: &mut Frame, model: &InitRootViewModel);
+```
 
 ## Props Conventions
 
-<!-- How props should be defined and typed -->
-
-(To be filled by the team)
-
----
+- pass typed view models to renderers
+- pass `Catalog` or already localized text, never raw locale strings plus keys
+  plus lookup logic in the widget
+- pass row template variants explicitly; do not handcraft prefix glyphs inline
 
 ## Styling Patterns
 
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
-
----
+- one-column menuconfig layout only for main flow
+- center the content block; left-align text inside rows
+- keep row-template grammar exactly aligned with the matrix doc
+- preserve right-side `--->` suffix during truncation
 
 ## Accessibility
 
-<!-- A11y requirements and patterns -->
+For terminal UI, accessibility means predictable keyboard semantics and readable
+state transitions:
 
-(To be filled by the team)
-
----
+- `Space` toggles only toggle rows
+- `Enter` follows action/detail flows
+- `Esc` exits popup/back/root in the documented order
+- status/help text may wrap; menu rows must remain single-line
 
 ## Common Mistakes
 
-<!-- Component-related mistakes your team has made -->
+### Don't: Encode business logic in render code
 
-(To be filled by the team)
+Renderers should not decide version numbers, parse manifests, or write files.
+
+### Don't: Draw semantic prefixes manually
+
+Use row-template-driven rendering so every screen behaves the same way.
+
+### Don't: Hardcode labels inside components
+
+All copy must come from i18n catalogs.

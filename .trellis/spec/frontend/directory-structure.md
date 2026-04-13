@@ -1,54 +1,52 @@
 # Directory Structure
 
-> How frontend code is organized in this project.
+> How TUI/frontend code is organized in `omv`.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's frontend directory structure here.
-
-Questions to answer:
-- Where do components live?
-- How are features/modules organized?
-- Where are shared utilities?
-- How are assets organized?
--->
-
-(To be filled by the team)
-
----
+Keep UI rendering, event handling, and draft-state management separate so the
+same backend command logic can be reused outside the TUI when needed.
 
 ## Directory Layout
 
+```text
+src/ui/
+├── app.rs                 # app bootstrap and top-level event loop
+├── screen/
+│   ├── init_root.rs       # main init menu
+│   ├── language.rs        # language support screen/section
+│   ├── review.rs
+│   └── popup.rs
+├── widget/
+│   ├── row.rs             # row-template rendering
+│   ├── footer.rs
+│   └── modal.rs
+├── state/
+│   ├── draft.rs           # init draft state
+│   ├── focus.rs           # focus model and navigation
+│   └── popup.rs           # popup state
+└── event.rs               # key events -> actions
 ```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
-```
-
----
 
 ## Module Organization
 
-<!-- How should new features be organized? -->
-
-(To be filled by the team)
-
----
+- `screen/` decides what should be shown
+- `widget/` decides how it is rendered
+- `state/` owns transient UI state only
+- backend/app code owns persistence, validation, and synchronization
 
 ## Naming Conventions
 
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
-
----
+- screen modules: `<flow>_<screen>.rs`
+- widgets: named by reusable UI concept such as `row`, `modal`, `footer`
+- event enums: `UiAction`, `PopupAction`, `FocusTarget`
 
 ## Examples
 
-<!-- Link to well-organized modules as examples -->
+Follow these separations:
 
-(To be filled by the team)
+- menuconfig row grammar comes from the matrix doc, not from ad hoc widget code
+- locale strings come from catalogs, not from `screen/*.rs`
+- popup selection results mutate draft state, then backend code persists

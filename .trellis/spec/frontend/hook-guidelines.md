@@ -1,51 +1,47 @@
 # Hook Guidelines
 
-> How hooks are used in this project.
+> Reusable interaction-helper rules for the Rust TUI.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's hook conventions here.
-
-Questions to answer:
-- What custom hooks do you have?
-- How do you handle data fetching?
-- What are the naming conventions?
-- How do you share stateful logic?
--->
-
-(To be filled by the team)
-
----
+`omv` does not use React hooks. This file exists to document the equivalent
+abstractions for reusable stateful UI behavior in Rust.
 
 ## Custom Hook Patterns
 
-<!-- How to create and structure custom hooks -->
+Preferred equivalents:
 
-(To be filled by the team)
+- typed event reducers
+- focus controllers
+- popup state machines
+- helper functions that derive row models from draft state
 
----
+Good pattern:
+
+```rust
+fn handle_key(draft: &mut InitDraft, focus: &mut FocusState, key: KeyEvent) -> UiAction;
+```
 
 ## Data Fetching
 
-<!-- How data fetching is handled (React Query, SWR, etc.) -->
-
-(To be filled by the team)
-
----
+The init TUI may trigger backend discovery or validation work, but the UI layer
+must not perform raw filesystem/network calls directly. Route them through
+command/application services and surface progress via waiting/result popups.
 
 ## Naming Conventions
 
-<!-- Hook naming rules (use*, etc.) -->
-
-(To be filled by the team)
-
----
+- use `handle_*`, `derive_*`, `reduce_*`, `apply_*`
+- avoid `use_*` names because they imply React semantics the project does not
+  have
 
 ## Common Mistakes
 
-<!-- Hook-related mistakes your team has made -->
+### Don't: Port React mental models literally
 
-(To be filled by the team)
+Avoid building pseudo-hooks that obscure ordinary Rust ownership and state flow.
+
+### Don't: Keep hidden mutable global UI state
+
+All draft/focus/popup state must be explicit and testable.

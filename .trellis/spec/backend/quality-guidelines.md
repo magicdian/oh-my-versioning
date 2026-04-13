@@ -1,51 +1,64 @@
 # Quality Guidelines
 
-> Code quality standards for backend development.
+> Code quality standards for `omv` backend development.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
+`omv` changes version truth. Bad writes or silent drift are worse than a failed
+command. Backend quality work is therefore correctness-first.
 
 ## Forbidden Patterns
 
-<!-- Patterns that should never be used and why -->
+### Don't: Hardcode operator-facing strings in Rust code
 
-(To be filled by the team)
+All CLI and TUI copy must come from catalogs under `resources/i18n/`.
 
----
+### Don't: Re-implement version formatting or bump logic in multiple modules
+
+There must be one version engine.
+
+### Don't: Mutate native manifests without going through a target adapter
+
+This breaks cross-language consistency.
+
+### Don't: Panic on expected operator failures
+
+Invalid locale, malformed TOML, missing target manifest, and NTP failure are not
+panic-worthy.
+
+### Don't: Write `.omv` files non-atomically
+
+Partial writes can corrupt the source of truth.
 
 ## Required Patterns
 
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
+- typed enums for locale, build policy, version output, and target language
+- atomic writes for `.omv` files
+- localized CLI/TUI copy through catalogs
+- adapter-based sync per language family
+- parity tests between `en-US` and `zh-CN`
 
 ## Testing Requirements
 
-<!-- What level of testing is expected -->
+- unit tests for version calculation and time-validation branching
+- persistence round-trip tests for all `.omv` files
+- adapter tests for each supported language family
+- locale parity/fallback tests
+- integration tests for `omv init`, `omv bump`, and `omv sync`
 
-(To be filled by the team)
+When a command changes output semantics, add assertion coverage for:
 
----
+- localized success/error message key paths
+- target sync result
+- persisted `.omv` state
 
 ## Code Review Checklist
 
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+- Is `.omv` still the only truth source?
+- Are locale strings catalog-driven?
+- Is version logic reused instead of copied?
+- Are errors typed and localized at the boundary?
+- Does the change preserve the V1 flat target model?
+- Are tests covering both `daily-reset` and `continuous` where relevant?

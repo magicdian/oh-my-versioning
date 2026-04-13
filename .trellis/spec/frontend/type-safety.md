@@ -1,51 +1,44 @@
 # Type Safety
 
-> Type safety patterns in this project.
+> Type-safety patterns for `omv` operator-facing code.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's type safety conventions here.
-
-Questions to answer:
-- What type system do you use?
-- How are types organized?
-- What validation library do you use?
-- How do you handle type inference?
--->
-
-(To be filled by the team)
-
----
+UI code must use the same typed domain model as backend code wherever possible.
+Avoid raw strings for locale, language, build policy, output mode, and popup
+strategy.
 
 ## Type Organization
 
-<!-- Where types are defined, shared types vs local types -->
+Use shared enums/structs for:
 
-(To be filled by the team)
+- `OperatorLocale`
+- `BuildPolicy`
+- `VersionOutput`
+- `TargetLanguage`
+- `PreProjectStrategy`
+- `RowTemplate`
+- `PopupKind`
 
----
+Keep these in shared modules rather than redefining them in each screen.
 
 ## Validation
 
-<!-- Runtime validation patterns (Zod, Yup, io-ts, etc.) -->
-
-(To be filled by the team)
-
----
+- deserialize persisted TOML into typed enums/structs
+- validate auto-discovery results before converting them into draft rows
+- convert unsupported/raw input into typed validation errors before rendering
 
 ## Common Patterns
 
-<!-- Type utilities, generics, type guards -->
-
-(To be filled by the team)
-
----
+- `enum` for exclusive choices
+- `struct` for draft state
+- `match` over action enums for event handling
+- centralized catalog key constants when the same key is reused across modules
 
 ## Forbidden Patterns
 
-<!-- any, type assertions, etc. -->
-
-(To be filled by the team)
+- raw `"zh-CN"` or `"en-US"` literals scattered across multiple UI files
+- stringly typed row template names
+- direct indexing into ad hoc maps for popup control flow when an enum would do

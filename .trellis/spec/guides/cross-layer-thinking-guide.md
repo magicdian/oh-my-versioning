@@ -1,94 +1,87 @@
 # Cross-Layer Thinking Guide
 
-> **Purpose**: Think through data flow across layers before implementing.
+> Think through `omv` data flow before implementing.
 
 ---
 
 ## The Problem
 
-**Most bugs happen at layer boundaries**, not within layers.
+Most `omv` bugs will happen at boundaries:
 
-Common cross-layer bugs:
-- API returns format A, frontend expects format B
-- Database stores X, service transforms to Y, but loses data
-- Multiple layers implement the same logic differently
-
----
+- time source -> version engine
+- version engine -> `.omv/state.toml`
+- `.omv` truth -> language-native manifests
+- locale preference -> CLI/TUI rendering
+- init draft -> persisted config/targets
 
 ## Before Implementing Cross-Layer Features
 
-### Step 1: Map the Data Flow
+### Step 1: Map the Flow
 
-Draw out how data moves:
+Use a concrete flow such as:
 
+```text
+Time Source -> Version Engine -> .omv State -> Target Sync -> Runtime Exports -> User Output
 ```
-Source → Transform → Store → Retrieve → Transform → Display
-```
 
-For each arrow, ask:
-- What format is the data in?
-- What could go wrong?
-- Who is responsible for validation?
+For each step, ask:
 
-### Step 2: Identify Boundaries
+- what is the typed input?
+- what is the persisted/output contract?
+- what error should stop the flow?
 
-| Boundary | Common Issues |
-|----------|---------------|
-| API ↔ Service | Type mismatches, missing fields |
-| Service ↔ Database | Format conversions, null handling |
-| Backend ↔ Frontend | Serialization, date formats |
-| Component ↔ Component | Props shape changes |
+### Step 2: Check the Critical Boundaries
 
-### Step 3: Define Contracts
+| Boundary | Typical Risk |
+| --- | --- |
+| system/NTP/manual date -> validated date | false trust, future-date corruption |
+| draft state -> persisted `.omv` | accidental partial saves |
+| `.omv` -> manifest sync | manifest drift from truth source |
+| locale preference -> rendered text | hardcoded copy or missing key parity |
 
-For each boundary:
-- What is the exact input format?
-- What is the exact output format?
-- What errors can occur?
+### Step 3: Define Ownership Once
 
----
+- version engine owns version math
+- storage owns `.omv` file contracts
+- sync adapters own manifest/runtime-export writes
+- i18n catalog owns user-facing copy
+- TUI owns interaction, not persistence truth
 
 ## Common Cross-Layer Mistakes
 
-### Mistake 1: Implicit Format Assumptions
+### Mistake 1: Two truth sources
 
-**Bad**: Assuming date format without checking
+**Bad**: reading `Cargo.toml` to decide the next version while also storing
+state in `.omv/state.toml`
 
-**Good**: Explicit format conversion at boundaries
+**Good**: derive next version only from `.omv` plus validated time
 
-### Mistake 2: Scattered Validation
+### Mistake 2: Locale split-brain
 
-**Bad**: Validating the same thing in multiple layers
+**Bad**: CLI reads locale from config, but TUI keeps a different internal
+default
 
-**Good**: Validate once at the entry point
+**Good**: both use the same normalized locale from `.omv/config.toml`
 
-### Mistake 3: Leaky Abstractions
+### Mistake 3: UI-driven persistence
 
-**Bad**: Component knows about database schema
+**Bad**: writing files directly inside key handlers
 
-**Good**: Each layer only knows its neighbors
+**Good**: UI confirms a draft, backend persists atomically
 
----
-
-## Checklist for Cross-Layer Features
+## Checklist for OMV Features
 
 Before implementation:
-- [ ] Mapped the complete data flow
-- [ ] Identified all layer boundaries
-- [ ] Defined format at each boundary
-- [ ] Decided where validation happens
+
+- [ ] Identified which `.omv` files are read and written
+- [ ] Defined the exact time source and fallback path
+- [ ] Defined how localized text is obtained
+- [ ] Identified whether target sync is part of the command
+- [ ] Checked whether manifest files are outputs rather than truth
 
 After implementation:
-- [ ] Tested with edge cases (null, empty, invalid)
-- [ ] Verified error handling at each boundary
-- [ ] Checked data survives round-trip
 
----
-
-## When to Create Flow Documentation
-
-Create detailed flow docs when:
-- Feature spans 3+ layers
-- Multiple teams are involved
-- Data format is complex
-- Feature has caused bugs before
+- [ ] Tested Chinese and English output
+- [ ] Tested bad/malformed `.omv` files
+- [ ] Tested missing target manifest behavior
+- [ ] Verified state remains consistent after failure

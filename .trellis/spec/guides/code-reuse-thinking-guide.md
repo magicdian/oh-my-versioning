@@ -1,105 +1,73 @@
 # Code Reuse Thinking Guide
 
-> **Purpose**: Stop and think before creating new code - does it already exist?
+> Stop before creating duplicate logic in `omv`.
 
 ---
 
 ## The Problem
 
-**Duplicated code is the #1 source of inconsistency bugs.**
+This project is small enough that duplication will drift quickly if we are not
+careful. The highest-risk duplication points are:
 
-When you copy-paste or rewrite existing logic:
-- Bug fixes don't propagate
-- Behavior diverges over time
-- Codebase becomes harder to understand
-
----
+- version formatting
+- date validation
+- `.omv` path resolution
+- target sync behavior
+- i18n key lookup and formatting
 
 ## Before Writing New Code
 
 ### Step 1: Search First
 
 ```bash
-# Search for similar function names
-grep -r "functionName" .
-
-# Search for similar logic
-grep -r "keyword" .
+rg "build_policy|version_output|locale|target language" src tests
 ```
 
 ### Step 2: Ask These Questions
 
 | Question | If Yes... |
-|----------|-----------|
-| Does a similar function exist? | Use or extend it |
-| Is this pattern used elsewhere? | Follow the existing pattern |
-| Could this be a shared utility? | Create it in the right place |
-| Am I copying code from another file? | **STOP** - extract to shared |
-
----
+| --- | --- |
+| Does a formatter or parser already exist? | Reuse it |
+| Is this another language-target adapter? | Extend the adapter pattern |
+| Is this another user-facing string? | Add a catalog key, do not hardcode |
+| Is this another `.omv` write path? | Reuse atomic storage helpers |
 
 ## Common Duplication Patterns
 
-### Pattern 1: Copy-Paste Functions
+### Pattern 1: Multiple version calculators
 
-**Bad**: Copying a validation function to another file
+**Bad**: separate "init version", "bump version", and "sync version" math
 
-**Good**: Extract to shared utilities, import where needed
+**Good**: one version engine used by every command
 
-### Pattern 2: Similar Components
+### Pattern 2: Per-command locale lookup wrappers
 
-**Bad**: Creating a new component that's 80% similar to existing
+**Bad**: each command builds its own ad hoc translation helper
 
-**Good**: Extend existing component with props/variants
+**Good**: one shared `Catalog` API
 
-### Pattern 3: Repeated Constants
+### Pattern 3: Per-language custom root resolution
 
-**Bad**: Defining the same constant in multiple files
+**Bad**: each adapter re-discovers repo root and `.omv` location
 
-**Good**: Single source of truth, import everywhere
-
----
+**Good**: root is resolved once and passed down
 
 ## When to Abstract
 
-**Abstract when**:
-- Same code appears 3+ times
-- Logic is complex enough to have bugs
-- Multiple people might need this
+Abstract when:
 
-**Don't abstract when**:
-- Only used once
-- Trivial one-liner
-- Abstraction would be more complex than duplication
+- a path/format rule is used by more than one command
+- two language adapters share file-write sequencing
+- multiple screens need the same row-derivation or popup-selection logic
 
----
+Do not abstract when:
 
-## After Batch Modifications
-
-When you've made similar changes to multiple files:
-
-1. **Review**: Did you catch all instances?
-2. **Search**: Run grep to find any missed
-3. **Consider**: Should this be abstracted?
-
----
-
-## Gotcha: Asymmetric Mechanisms Producing Same Output
-
-**Problem**: When two different mechanisms must produce the same file set (e.g., recursive directory copy for init vs. manual `files.set()` for update), structural changes (renaming, moving, adding subdirectories) only propagate through the automatic mechanism. The manual one silently drifts.
-
-**Symptom**: Init works perfectly, but update creates files at wrong paths or misses files entirely.
-
-**Prevention checklist**:
-- [ ] When migrating directory structures, search for ALL code paths that reference the old structure
-- [ ] If one path is auto-derived (glob/copy) and another is manually listed, the manual one needs updating
-- [ ] Add a regression test that compares outputs from both mechanisms
-
----
+- the code is truly one-off
+- the shared shape is not stable yet
 
 ## Checklist Before Commit
 
-- [ ] Searched for existing similar code
-- [ ] No copy-pasted logic that should be shared
-- [ ] Constants defined in one place
-- [ ] Similar patterns follow same structure
+- [ ] Searched for an existing formatter or helper
+- [ ] Did not copy a catalog lookup helper into a second module
+- [ ] Did not duplicate target sync orchestration per command
+- [ ] Reused one `.omv` path-resolution strategy

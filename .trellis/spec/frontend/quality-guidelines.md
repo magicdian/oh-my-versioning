@@ -1,51 +1,42 @@
 # Quality Guidelines
 
-> Code quality standards for frontend development.
+> Quality standards for `omv` CLI/TUI behavior.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
+The UI is small, but correctness matters because it configures the version truth
+source. Interaction bugs can corrupt configuration just as badly as backend
+bugs.
 
 ## Forbidden Patterns
 
-<!-- Patterns that should never be used and why -->
-
-(To be filled by the team)
-
----
+- hardcoded operator-facing strings
+- business logic inside widget rendering
+- direct filesystem/network access from render/event code
+- key semantics that diverge from the menuconfig matrix
+- row wrapping that breaks semantic prefixes or `--->`
 
 ## Required Patterns
 
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
+- matrix-aligned row templates and popup semantics
+- localized status/help/confirm text
+- explicit dirty-state tracking based on current draft vs baseline
+- viewport guard for sizes below `80x24`
 
 ## Testing Requirements
 
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
+- keyboard contract tests for `Space`, `Enter`, and `Esc`
+- viewport guard tests
+- locale rendering tests for English and Chinese
+- init flow tests for auto-detected languages and manual toggles
+- pre-project strategy popup tests
 
 ## Code Review Checklist
 
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+- Does the screen follow the matrix grammar?
+- Are toggles using `Space` only?
+- Are strings catalog-driven?
+- Is draft state separate from persisted state?
+- Do popup flows match the documented close/confirm behavior?
