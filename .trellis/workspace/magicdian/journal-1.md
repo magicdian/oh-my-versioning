@@ -14,9 +14,8 @@
 
 ### Summary
 
-Implemented OMV's installable AI/spec adapter framework, added structured JSON
-automation contracts around `current`/`bump`, and documented the new cross-layer
-rules in README plus Trellis code-specs.
+Bootstrapped OMV product definition, Trellis code-specs, and task scaffolding
+for the initial CLI foundation and future implementation work.
 
 ### Main Changes
 
@@ -104,7 +103,9 @@ Added locale/timezone/build-policy init flow, scrollable choice popups, runtime 
 
 ### Summary
 
-(Add summary)
+Implemented OMV's installable AI/spec adapter framework, added structured JSON
+automation contracts around `current`/`bump`, and documented the new cross-layer
+rules in README plus Trellis code-specs.
 
 ### Main Changes
 
