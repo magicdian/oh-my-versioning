@@ -7,10 +7,17 @@
 
 ## Status
 
-- [ ] Review migration guide
-- [ ] Update custom files
-- [ ] Run `trellis update --migrate`
-- [ ] Test workflows
+- [x] Review migration guide
+- [x] Update custom files
+- [x] Run `trellis update --migrate`
+- [x] Test workflows
+
+## Verification Notes
+
+- Confirmed the repository already uses unified `before-dev` and `check` skills.
+- Verified no active config still references `before-backend-dev`, `before-frontend-dev`, `check-backend`, or `check-frontend`.
+- Ran `trellis update --dry-run --migrate` and `trellis update --migrate`; both reported the project is already up to date on `0.4.0`.
+- Verified `python3 ./.trellis/scripts/get_context.py --mode packages` works, which is the unified pre-dev discovery path used by `before-dev`.
 
 ---
 
@@ -66,4 +73,3 @@ When helping users migrate to v0.4.0-beta.1:
 2. **If customized**: Help merge their customizations into the new unified `before-dev` and `check` files. The new files use `python3 ./.trellis/scripts/get_context.py --mode packages` to auto-detect which specs to load, replacing the hardcoded backend/frontend split.
 3. **If not customized**: Just run `trellis update` — safe-file-delete will handle cleanup automatically.
 4. **Python scripts**: No user action needed. The refactoring preserves all entry paths. If the user has custom scripts that import from `.trellis/scripts/common/`, they may need to update imports (e.g., `from common.io import read_json` instead of inline `_read_json_file`).
-
