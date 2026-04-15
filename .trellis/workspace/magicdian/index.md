@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
-- **Last Active**: 2026-04-13
+- **Total Sessions**: 4
+- **Last Active**: 2026-04-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~143 | Active |
+| `journal-1.md` | ~185 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -27,8 +27,9 @@
 ## Session History
 
 <!-- @@@auto:session-history -->
-| # | Date | Title | Commits |
-|---|------|-------|---------|
+| # | Date | Title | Commits | Branch |
+|---|------|-------|---------|--------|
+| 4 | 2026-04-15 | Complete Trellis v0.4.0 migration task | `621db6d` | `dev` |
 | 3 | 2026-04-13 | Add OMV AI/spec adapter framework | `bda8a0a` |
 | 2 | 2026-04-13 | Finalize OMV init UX and close foundation tasks | `71ee1e9` |
 | 1 | 2026-04-13 | Bootstrap OMV specs and planning | `b87c15e` |

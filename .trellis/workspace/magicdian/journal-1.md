@@ -144,3 +144,42 @@ rules in README plus Trellis code-specs.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Complete Trellis v0.4.0 migration task
+
+**Date**: 2026-04-15
+**Task**: Complete Trellis v0.4.0 migration task
+**Branch**: `dev`
+
+### Summary
+
+Verified the repository was already on Trellis 0.4.0, marked the migration task complete, archived it, and recorded the validation results.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Migration verification | Confirmed unified `before-dev` and `check` skills are present and old command names are no longer referenced in active config. |
+| Validation | Ran `trellis update --dry-run --migrate`, `trellis update --migrate`, `python3 ./.trellis/scripts/get_context.py --mode packages`, `cargo fmt --check`, and `cargo test`. |
+| Task tracking | Updated the migration PRD/task metadata, then archived `04-15-migrate-to-0.4.0` into the April 2026 archive. |
+| Test results | `cargo test` passed with 91 total tests green, and `cargo fmt --check` passed. |
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `621db6d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
