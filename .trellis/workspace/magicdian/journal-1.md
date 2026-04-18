@@ -183,3 +183,37 @@ Verified the repository was already on Trellis 0.4.0, marked the migration task 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Finalize-task automation and OMV self-host setup
+
+**Date**: 2026-04-18
+**Task**: Finalize-task automation and OMV self-host setup
+**Branch**: `dev`
+
+### Summary
+
+Added finalize-task bump automation with audit and dedupe, enforced cargo clippy as a quality gate in docs and CI, and initialized this repository under OMV with synced version artifacts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f4e3042` | (see git log) |
+| `3926f42` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
