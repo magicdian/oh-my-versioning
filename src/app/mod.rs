@@ -1,18 +1,27 @@
 use std::io::IsTerminal;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
 use crate::adapter;
-use crate::cli::{AdapterAction, AdapterCommand, Cli, Command, OutputMode};
+use crate::cli::{
+    AdapterAction, AdapterCommand, Cli, Command, EventAction, EventCommand, FinalizeTaskCommand,
+    OutputMode,
+};
 use crate::core::date::LogicalDate;
+use crate::core::finalization::{
+    self, ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
+};
 use crate::core::locale::OperatorLocale;
-use crate::core::schema::{OmvConfig, OmvState, OmvTargetRecord, OmvTargets};
+use crate::core::schema::{
+    OmvConfig, OmvFinalizationRecord, OmvState, OmvTargetRecord, OmvTargets,
+};
 use crate::core::target::TargetLanguage;
 use crate::core::time::ntp::NtpTimeSource;
 use crate::core::time::{LastTimeSource, SystemTimeSource, TimeSource};
 use crate::core::versioning::engine;
-use crate::errors::{ConfigError, OmvError, StateError, TargetError};
+use crate::errors::{ConfigError, FinalizationError, OmvError, StateError, TargetError};
 use crate::i18n::{self, Catalog};
 use crate::storage;
 use crate::ui::app as init_ui_state;
@@ -56,6 +65,34 @@ struct CurrentExecution {
     total_targets: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinalizeTaskRequest {
+    task_id: String,
+    change_type: ChangeType,
+    task_status: TaskStatus,
+    tests_status: TestsStatus,
+    fingerprint: String,
+    source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct FinalizeTaskExecution {
+    task_id: String,
+    fingerprint: String,
+    change_type: String,
+    status: String,
+    tests: String,
+    source: String,
+    outcome: String,
+    reason: String,
+    duplicate: bool,
+    recovered: bool,
+    version_before: String,
+    version_after: String,
+    synced: usize,
+    skipped: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct StructuredEnvelope<T: Serialize> {
     ok: bool,
@@ -78,6 +115,13 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
         Command::Bump => run_bump(&omv_root, &catalog, ntp_override, cli.output_mode),
         Command::Sync => run_sync(&omv_root, &catalog, cli.output_mode),
         Command::Current => run_current(&omv_root, &catalog, cli.output_mode),
+        Command::Event(event_command) => run_event(
+            &omv_root,
+            &catalog,
+            ntp_override,
+            cli.output_mode,
+            event_command,
+        ),
         Command::Adapter(adapter_command) => {
             run_adapter(&cwd, &omv_root, &catalog, cli.output_mode, adapter_command)
         }
@@ -104,6 +148,7 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.commands.bump")),
         format!("  {}", catalog.t("cli.help.commands.sync")),
         format!("  {}", catalog.t("cli.help.commands.current")),
+        format!("  {}", catalog.t("cli.help.commands.event")),
         format!("  {}", catalog.t("cli.help.commands.adapter")),
         format!("  {}", catalog.t("cli.help.commands.help")),
         format!("  {}", catalog.t("cli.help.commands.version")),
@@ -121,6 +166,7 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.examples.bump")),
         format!("  {}", catalog.t("cli.help.examples.sync")),
         format!("  {}", catalog.t("cli.help.examples.current")),
+        format!("  {}", catalog.t("cli.help.examples.event")),
         format!("  {}", catalog.t("cli.help.examples.adapter")),
         format!("  {}", catalog.t("cli.help.examples.locale")),
         format!("  {}", catalog.t("cli.help.examples.no_ntp")),
@@ -144,6 +190,7 @@ pub fn render_error(locale: &str, err: &OmvError) -> String {
             OmvError::Cli(_) => cat.tf("error.cli", &["detail", detail.as_str()]),
             OmvError::Adapter(_) => cat.tf("error.adapter", &["detail", detail.as_str()]),
             OmvError::Config(_) => cat.tf("error.config", &["detail", detail.as_str()]),
+            OmvError::Finalization(_) => cat.tf("error.finalization", &["detail", detail.as_str()]),
             OmvError::State(_) => cat.tf("error.state", &["detail", detail.as_str()]),
             OmvError::Time(_) => cat.tf("error.time", &["detail", detail.as_str()]),
             OmvError::Ntp(_) => cat.tf("error.ntp", &["detail", detail.as_str()]),
@@ -279,6 +326,30 @@ fn run_current(
     Ok(AppOutput { message })
 }
 
+fn run_event(
+    omv_root: &Path,
+    catalog: &Catalog,
+    ntp_override: Option<bool>,
+    output_mode: OutputMode,
+    command: EventCommand,
+) -> Result<AppOutput, OmvError> {
+    let ntp = NtpTimeSource::default();
+    let system = SystemTimeSource;
+
+    let message = match command.action {
+        EventAction::FinalizeTask(finalize_command) => {
+            let execution =
+                execute_finalize_task(omv_root, &ntp, &system, ntp_override, finalize_command)?;
+            match output_mode {
+                OutputMode::Text => render_finalize_task_text(catalog, &execution),
+                OutputMode::Json => render_structured_success("event.finalize-task", &execution),
+            }
+        }
+    };
+
+    Ok(AppOutput { message })
+}
+
 fn run_adapter(
     cwd: &Path,
     omv_root: &Path,
@@ -332,6 +403,69 @@ fn run_adapter(
     Ok(AppOutput { message })
 }
 
+fn render_finalize_task_text(catalog: &Catalog, execution: &FinalizeTaskExecution) -> String {
+    if execution.duplicate {
+        return catalog.tf(
+            "cli.event.finalize_task.duplicate",
+            &[
+                "task_id",
+                execution.task_id.as_str(),
+                "version",
+                execution.version_after.as_str(),
+            ],
+        );
+    }
+
+    if execution.recovered {
+        return catalog.tf(
+            "cli.event.finalize_task.recovered",
+            &[
+                "task_id",
+                execution.task_id.as_str(),
+                "version",
+                execution.version_after.as_str(),
+            ],
+        );
+    }
+
+    if execution.outcome == FinalizationOutcome::Bumped.as_str() {
+        return catalog.tf(
+            "cli.event.finalize_task.bumped",
+            &[
+                "task_id",
+                execution.task_id.as_str(),
+                "version",
+                execution.version_after.as_str(),
+            ],
+        );
+    }
+
+    let reason = finalization_reason_text(catalog, execution.reason.as_str());
+    catalog.tf(
+        "cli.event.finalize_task.noop",
+        &[
+            "task_id",
+            execution.task_id.as_str(),
+            "reason",
+            reason.as_str(),
+        ],
+    )
+}
+
+fn finalization_reason_text(catalog: &Catalog, reason: &str) -> String {
+    let key = match reason {
+        "semantic-change" => "cli.event.finalize_task.reason.semantic_change",
+        "tests-not-passed" => "cli.event.finalize_task.reason.tests_not_passed",
+        "status-not-done" => "cli.event.finalize_task.reason.status_not_done",
+        "non-semantic-change" => "cli.event.finalize_task.reason.non_semantic_change",
+        "duplicate-fingerprint" => "cli.event.finalize_task.reason.duplicate_fingerprint",
+        "pending-recovered" => "cli.event.finalize_task.reason.pending_recovered",
+        _ => return reason.to_owned(),
+    };
+
+    catalog.t(key)
+}
+
 fn render_structured_success<T: Serialize>(command: &str, data: T) -> String {
     let envelope = StructuredEnvelope {
         ok: true,
@@ -378,6 +512,246 @@ fn render_adapter_status_text(catalog: &Catalog, status: &adapter::AdapterStatus
         ));
     }
     lines.join("\n")
+}
+
+fn execute_finalize_task(
+    omv_root: &Path,
+    ntp_source: &dyn TimeSource,
+    system_source: &dyn TimeSource,
+    ntp_override: Option<bool>,
+    command: FinalizeTaskCommand,
+) -> Result<FinalizeTaskExecution, OmvError> {
+    let request = parse_finalize_task_request(command)?;
+    let mut finalizations = storage::finalizations::load_finalizations_if_exists(omv_root)?;
+    let current_state = storage::state::load_state(omv_root)?;
+
+    if let Some(index) = finalizations
+        .entries
+        .iter()
+        .position(|entry| entry.fingerprint == request.fingerprint)
+    {
+        let existing = finalizations.entries[index].clone();
+        if existing.outcome == FinalizationOutcome::Pending
+            && current_state.last_issued_version != existing.version_before
+        {
+            let sync = execute_sync(omv_root)?;
+            let recovered = OmvFinalizationRecord {
+                task_id: existing.task_id.clone(),
+                fingerprint: existing.fingerprint.clone(),
+                change_type: existing.change_type,
+                task_status: existing.task_status,
+                tests_status: existing.tests_status,
+                source: existing.source.clone(),
+                outcome: FinalizationOutcome::Bumped,
+                reason: FinalizationReason::PendingRecovered,
+                version_before: existing.version_before.clone(),
+                version_after: sync.version.clone(),
+                recorded_at: current_timestamp_string(),
+            };
+            upsert_finalization_record(&mut finalizations, recovered);
+            storage::finalizations::save_finalizations(omv_root, &finalizations)?;
+
+            return Ok(FinalizeTaskExecution {
+                task_id: existing.task_id,
+                fingerprint: existing.fingerprint,
+                change_type: existing.change_type.as_str().to_owned(),
+                status: existing.task_status.as_str().to_owned(),
+                tests: existing.tests_status.as_str().to_owned(),
+                source: existing.source,
+                outcome: FinalizationOutcome::Bumped.as_str().to_owned(),
+                reason: FinalizationReason::PendingRecovered.as_str().to_owned(),
+                duplicate: false,
+                recovered: true,
+                version_before: existing.version_before,
+                version_after: sync.version,
+                synced: sync.synced,
+                skipped: sync.skipped,
+            });
+        }
+
+        if existing.outcome != FinalizationOutcome::Pending {
+            let version_after = if existing.version_after.is_empty() {
+                current_state.last_issued_version.clone()
+            } else {
+                existing.version_after.clone()
+            };
+
+            return Ok(FinalizeTaskExecution {
+                task_id: existing.task_id,
+                fingerprint: existing.fingerprint,
+                change_type: existing.change_type.as_str().to_owned(),
+                status: existing.task_status.as_str().to_owned(),
+                tests: existing.tests_status.as_str().to_owned(),
+                source: existing.source,
+                outcome: existing.outcome.as_str().to_owned(),
+                reason: FinalizationReason::DuplicateFingerprint.as_str().to_owned(),
+                duplicate: true,
+                recovered: false,
+                version_before: existing.version_before,
+                version_after,
+                synced: 0,
+                skipped: 0,
+            });
+        }
+    }
+
+    let decision = finalization::decide(
+        request.change_type,
+        request.task_status,
+        request.tests_status,
+    );
+    let version_before = current_state.last_issued_version.clone();
+
+    if !decision.should_bump() {
+        let noop_record = OmvFinalizationRecord {
+            task_id: request.task_id.clone(),
+            fingerprint: request.fingerprint.clone(),
+            change_type: request.change_type,
+            task_status: request.task_status,
+            tests_status: request.tests_status,
+            source: request.source.clone(),
+            outcome: FinalizationOutcome::NoOp,
+            reason: decision.reason,
+            version_before: version_before.clone(),
+            version_after: version_before.clone(),
+            recorded_at: current_timestamp_string(),
+        };
+        upsert_finalization_record(&mut finalizations, noop_record);
+        storage::finalizations::save_finalizations(omv_root, &finalizations)?;
+
+        return Ok(FinalizeTaskExecution {
+            task_id: request.task_id,
+            fingerprint: request.fingerprint,
+            change_type: request.change_type.as_str().to_owned(),
+            status: request.task_status.as_str().to_owned(),
+            tests: request.tests_status.as_str().to_owned(),
+            source: request.source,
+            outcome: FinalizationOutcome::NoOp.as_str().to_owned(),
+            reason: decision.reason.as_str().to_owned(),
+            duplicate: false,
+            recovered: false,
+            version_before: version_before.clone(),
+            version_after: version_before,
+            synced: 0,
+            skipped: 0,
+        });
+    }
+
+    let pending_record = OmvFinalizationRecord {
+        task_id: request.task_id.clone(),
+        fingerprint: request.fingerprint.clone(),
+        change_type: request.change_type,
+        task_status: request.task_status,
+        tests_status: request.tests_status,
+        source: request.source.clone(),
+        outcome: FinalizationOutcome::Pending,
+        reason: decision.reason,
+        version_before: version_before.clone(),
+        version_after: String::new(),
+        recorded_at: current_timestamp_string(),
+    };
+    upsert_finalization_record(&mut finalizations, pending_record);
+    storage::finalizations::save_finalizations(omv_root, &finalizations)?;
+
+    let bump = execute_bump(omv_root, ntp_source, system_source, ntp_override)?;
+
+    let completed_record = OmvFinalizationRecord {
+        task_id: request.task_id.clone(),
+        fingerprint: request.fingerprint.clone(),
+        change_type: request.change_type,
+        task_status: request.task_status,
+        tests_status: request.tests_status,
+        source: request.source.clone(),
+        outcome: FinalizationOutcome::Bumped,
+        reason: decision.reason,
+        version_before: version_before.clone(),
+        version_after: bump.version.clone(),
+        recorded_at: current_timestamp_string(),
+    };
+    upsert_finalization_record(&mut finalizations, completed_record);
+    storage::finalizations::save_finalizations(omv_root, &finalizations)?;
+
+    Ok(FinalizeTaskExecution {
+        task_id: request.task_id,
+        fingerprint: request.fingerprint,
+        change_type: request.change_type.as_str().to_owned(),
+        status: request.task_status.as_str().to_owned(),
+        tests: request.tests_status.as_str().to_owned(),
+        source: request.source,
+        outcome: FinalizationOutcome::Bumped.as_str().to_owned(),
+        reason: decision.reason.as_str().to_owned(),
+        duplicate: false,
+        recovered: false,
+        version_before,
+        version_after: bump.version,
+        synced: bump.synced,
+        skipped: bump.skipped,
+    })
+}
+
+fn parse_finalize_task_request(
+    command: FinalizeTaskCommand,
+) -> Result<FinalizeTaskRequest, OmvError> {
+    let task_id = require_finalize_task_field(command.task_id, "task_id")?;
+    let change_type_value = require_finalize_task_field(command.change_type, "change_type")?;
+    let status_value = require_finalize_task_field(command.status, "status")?;
+    let tests_value = require_finalize_task_field(command.tests, "tests")?;
+    let fingerprint = require_finalize_task_field(command.fingerprint, "fingerprint")?;
+    let source = require_finalize_task_field(command.source, "source")?;
+
+    Ok(FinalizeTaskRequest {
+        task_id,
+        change_type: ChangeType::parse(&change_type_value).ok_or_else(|| {
+            FinalizationError::InvalidField {
+                field: "change_type".to_owned(),
+                value: change_type_value.clone(),
+            }
+        })?,
+        task_status: TaskStatus::parse(&status_value).ok_or_else(|| {
+            FinalizationError::InvalidField {
+                field: "status".to_owned(),
+                value: status_value.clone(),
+            }
+        })?,
+        tests_status: TestsStatus::parse(&tests_value).ok_or_else(|| {
+            FinalizationError::InvalidField {
+                field: "tests".to_owned(),
+                value: tests_value.clone(),
+            }
+        })?,
+        fingerprint,
+        source,
+    })
+}
+
+fn require_finalize_task_field(value: Option<String>, field: &str) -> Result<String, OmvError> {
+    match value {
+        Some(value) if !value.trim().is_empty() => Ok(value),
+        _ => Err(FinalizationError::MissingField(field.to_owned()).into()),
+    }
+}
+
+fn upsert_finalization_record(
+    finalizations: &mut crate::core::schema::OmvFinalizations,
+    record: OmvFinalizationRecord,
+) {
+    if let Some(existing) = finalizations
+        .entries
+        .iter_mut()
+        .find(|entry| entry.fingerprint == record.fingerprint)
+    {
+        *existing = record;
+        return;
+    }
+
+    finalizations.entries.push(record);
+}
+
+fn current_timestamp_string() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs().to_string())
+        .unwrap_or_else(|_| String::from("0"))
 }
 
 fn resolve_locale_for_root(
@@ -578,8 +952,9 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::cli::{AdapterAction, AdapterCommand, OutputMode};
+    use crate::cli::{AdapterAction, AdapterCommand, FinalizeTaskCommand, OutputMode};
     use crate::core::date::LogicalDate;
+    use crate::core::finalization::FinalizationOutcome;
     use crate::core::locale::OperatorLocale;
     use crate::core::schema::{OmvConfig, OmvState};
     use crate::core::target::TargetLanguage;
@@ -590,8 +965,8 @@ mod tests {
     use crate::ui::state::draft::InitDraft;
 
     use super::{
-        execute_bump, execute_current, execute_sync, persist_init_state, render_help,
-        render_structured_error, render_version, resolve_locale_for_root, run_adapter,
+        execute_bump, execute_current, execute_finalize_task, execute_sync, persist_init_state,
+        render_help, render_structured_error, render_version, resolve_locale_for_root, run_adapter,
     };
 
     struct FixedSource {
@@ -824,6 +1199,150 @@ mod tests {
     }
 
     #[test]
+    fn execute_finalize_task_bumps_once_for_semantic_change() {
+        let omv_root = temp_omv_root("finalize-bump");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+
+        let execution = execute_finalize_task(
+            &omv_root,
+            &ntp,
+            &system,
+            None,
+            finalize_task_command("bugfix", "task-1:v1"),
+        )
+        .expect("finalize-task should succeed");
+        assert_eq!(execution.outcome, "bumped");
+        assert!(!execution.duplicate);
+        assert_eq!(execution.version_before, "2604.13.1");
+        assert_eq!(execution.version_after, "2604.13.2");
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.last_issued_version, "2604.13.2");
+
+        let finalizations = storage::finalizations::load_finalizations_if_exists(&omv_root)
+            .expect("finalizations should load");
+        assert_eq!(finalizations.entries.len(), 1);
+        assert_eq!(
+            finalizations.entries[0].outcome,
+            FinalizationOutcome::Bumped
+        );
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_finalize_task_returns_duplicate_without_second_bump() {
+        let omv_root = temp_omv_root("finalize-duplicate");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let command = finalize_task_command("feature", "task-1:v1");
+
+        execute_finalize_task(&omv_root, &ntp, &system, None, command.clone())
+            .expect("first finalize-task should succeed");
+        let duplicate = execute_finalize_task(&omv_root, &ntp, &system, None, command)
+            .expect("duplicate finalize-task should succeed");
+
+        assert!(duplicate.duplicate);
+        assert_eq!(duplicate.outcome, "bumped");
+        assert_eq!(duplicate.version_after, "2604.13.2");
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.build_number, 2);
+        assert_eq!(state.last_issued_version, "2604.13.2");
+
+        let finalizations = storage::finalizations::load_finalizations_if_exists(&omv_root)
+            .expect("finalizations should load");
+        assert_eq!(finalizations.entries.len(), 1);
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_finalize_task_records_noop_for_non_semantic_change() {
+        let omv_root = temp_omv_root("finalize-noop");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+
+        let execution = execute_finalize_task(
+            &omv_root,
+            &ntp,
+            &system,
+            None,
+            finalize_task_command("docs", "task-1:v1"),
+        )
+        .expect("finalize-task noop should succeed");
+        assert_eq!(execution.outcome, "noop");
+        assert_eq!(execution.version_before, "2604.13.1");
+        assert_eq!(execution.version_after, "2604.13.1");
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.build_number, 1);
+        assert_eq!(state.last_issued_version, "2604.13.1");
+
+        let finalizations = storage::finalizations::load_finalizations_if_exists(&omv_root)
+            .expect("finalizations should load");
+        assert_eq!(finalizations.entries.len(), 1);
+        assert_eq!(finalizations.entries[0].outcome, FinalizationOutcome::NoOp);
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
     fn run_adapter_status_json_reports_installed_entries() {
         let root = temp_project_root("adapter-status");
         let omv_root = root.join(".omv");
@@ -879,6 +1398,7 @@ mod tests {
 
         assert!(help.contains("Usage:"));
         assert!(help.contains("current"));
+        assert!(help.contains("event"));
         assert!(help.contains("adapter"));
         assert!(help.contains("--json"));
         assert!(help.contains("--output <MODE>"));
@@ -931,6 +1451,17 @@ mod tests {
     fn cleanup_omv_root(root: &std::path::Path) {
         if let Some(parent) = root.parent() {
             let _ = fs::remove_dir_all(parent);
+        }
+    }
+
+    fn finalize_task_command(change_type: &str, fingerprint: &str) -> FinalizeTaskCommand {
+        FinalizeTaskCommand {
+            task_id: Some("04-18-product-gaps-automation-hooks".to_owned()),
+            change_type: Some(change_type.to_owned()),
+            status: Some("done".to_owned()),
+            tests: Some("passed".to_owned()),
+            fingerprint: Some(fingerprint.to_owned()),
+            source: Some("trellis-finish-work".to_owned()),
         }
     }
 }

@@ -268,7 +268,7 @@ dependencies = [
 
 [[package]]
 name = "omv"
-version = "2604.13.1"
+version = "2604.18.1"
 dependencies = [
  "crossterm",
  "ratatui",

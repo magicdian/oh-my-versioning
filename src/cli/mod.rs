@@ -23,9 +23,30 @@ pub enum Command {
     Bump,
     Sync,
     Current,
+    Event(EventCommand),
     Adapter(AdapterCommand),
     Help,
     Version,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventCommand {
+    pub action: EventAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventAction {
+    FinalizeTask(FinalizeTaskCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FinalizeTaskCommand {
+    pub task_id: Option<String>,
+    pub change_type: Option<String>,
+    pub status: Option<String>,
+    pub tests: Option<String>,
+    pub fingerprint: Option<String>,
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,10 +94,10 @@ pub fn detect_output_mode(raw_args: &[String]) -> OutputMode {
         match arg.as_str() {
             "--json" => return OutputMode::Json,
             "--output" => {
-                if let Some(value) = iter.next() {
-                    if let Some(mode) = OutputMode::parse(value) {
-                        return mode;
-                    }
+                if let Some(value) = iter.next()
+                    && let Some(mode) = OutputMode::parse(value)
+                {
+                    return mode;
                 }
             }
             _ => {}
@@ -106,6 +127,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
             "bump" => command = Command::Bump,
             "sync" => command = Command::Sync,
             "current" => command = Command::Current,
+            "event" => command = Command::Event(parse_event_command(&mut args)?),
             "adapter" => command = Command::Adapter(parse_adapter_command(&mut args)?),
             "version" | "--version" | "-V" => command = Command::Version,
             "help" | "--help" | "-h" => command = Command::Help,
@@ -122,9 +144,9 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
     })
 }
 
-fn strip_global_flags(
-    args: Vec<String>,
-) -> Result<(Vec<String>, Option<String>, Option<bool>, OutputMode), OmvError> {
+type GlobalFlags = (Vec<String>, Option<String>, Option<bool>, OutputMode);
+
+fn strip_global_flags(args: Vec<String>) -> Result<GlobalFlags, OmvError> {
     let mut remaining = Vec::new();
     let mut locale_override = None;
     let mut ntp_override = None;
@@ -142,13 +164,74 @@ fn strip_global_flags(
             "--output" => {
                 let value = iter.next().ok_or(CliError::MissingOutputValue)?;
                 output_mode =
-                    OutputMode::parse(&value).ok_or_else(|| CliError::InvalidOutputMode(value))?;
+                    OutputMode::parse(&value).ok_or(CliError::InvalidOutputMode(value))?;
             }
             _ => remaining.push(arg),
         }
     }
 
     Ok((remaining, locale_override, ntp_override, output_mode))
+}
+
+fn parse_event_command(args: &mut std::vec::IntoIter<String>) -> Result<EventCommand, OmvError> {
+    let action_value = args.next().ok_or(CliError::MissingEventAction)?;
+    let action = match action_value.as_str() {
+        "finalize-task" => EventAction::FinalizeTask(parse_finalize_task_command(args)?),
+        other => return Err(CliError::UnknownEventAction(other.to_owned()).into()),
+    };
+
+    Ok(EventCommand { action })
+}
+
+fn parse_finalize_task_command(
+    args: &mut std::vec::IntoIter<String>,
+) -> Result<FinalizeTaskCommand, OmvError> {
+    let mut command = FinalizeTaskCommand::default();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--task-id" => {
+                command.task_id = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--change-type" => {
+                command.change_type = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--status" => {
+                command.status = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--tests" => {
+                command.tests = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--fingerprint" => {
+                command.fingerprint = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--source" => {
+                command.source = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
+            other => return Err(CliError::UnknownEventAction(other.to_owned()).into()),
+        }
+    }
+
+    Ok(command)
 }
 
 fn parse_adapter_command(
@@ -189,7 +272,7 @@ fn parse_adapter_command(
 
 #[cfg(test)]
 mod tests {
-    use crate::cli::{AdapterAction, Command, OutputMode, parse_args};
+    use crate::cli::{AdapterAction, Command, EventAction, OutputMode, parse_args};
     use crate::errors::{CliError, OmvError};
 
     #[test]
@@ -287,6 +370,51 @@ mod tests {
         assert!(matches!(
             err,
             OmvError::Cli(CliError::UnknownAgentAdapter(_))
+        ));
+    }
+
+    #[test]
+    fn parses_event_finalize_task_with_all_fields() {
+        let cli = parse_args(vec![
+            "event".to_owned(),
+            "finalize-task".to_owned(),
+            "--task-id".to_owned(),
+            "task-1".to_owned(),
+            "--change-type".to_owned(),
+            "bugfix".to_owned(),
+            "--status".to_owned(),
+            "done".to_owned(),
+            "--tests".to_owned(),
+            "passed".to_owned(),
+            "--fingerprint".to_owned(),
+            "task-1:v1".to_owned(),
+            "--source".to_owned(),
+            "trellis-finish-work".to_owned(),
+        ])
+        .expect("event finalize-task should parse");
+
+        match cli.command {
+            Command::Event(event) => match event.action {
+                EventAction::FinalizeTask(command) => {
+                    assert_eq!(command.task_id.as_deref(), Some("task-1"));
+                    assert_eq!(command.change_type.as_deref(), Some("bugfix"));
+                    assert_eq!(command.status.as_deref(), Some("done"));
+                    assert_eq!(command.tests.as_deref(), Some("passed"));
+                    assert_eq!(command.fingerprint.as_deref(), Some("task-1:v1"));
+                    assert_eq!(command.source.as_deref(), Some("trellis-finish-work"));
+                }
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_event_action() {
+        let err = parse_args(vec!["event".to_owned(), "publish".to_owned()])
+            .expect_err("unknown event action should fail");
+        assert!(matches!(
+            err,
+            OmvError::Cli(CliError::UnknownEventAction(_))
         ));
     }
 }

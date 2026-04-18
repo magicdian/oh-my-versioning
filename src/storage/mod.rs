@@ -5,6 +5,7 @@ use crate::errors::{ConfigError, OmvError};
 pub mod adapters;
 pub mod atomic;
 pub mod config;
+pub mod finalizations;
 pub mod state;
 pub mod targets;
 
@@ -13,6 +14,7 @@ pub const CONFIG_FILE: &str = "config.toml";
 pub const STATE_FILE: &str = "state.toml";
 pub const TARGETS_FILE: &str = "targets.toml";
 pub const ADAPTERS_FILE: &str = "adapters.toml";
+pub const FINALIZATIONS_FILE: &str = "finalizations.toml";
 
 pub fn resolve_project_root(cwd: &Path) -> Result<PathBuf, OmvError> {
     let absolute = cwd

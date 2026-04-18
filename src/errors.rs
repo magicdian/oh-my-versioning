@@ -9,6 +9,7 @@ pub enum OmvError {
     Cli(CliError),
     Adapter(AdapterError),
     Config(ConfigError),
+    Finalization(FinalizationError),
     State(StateError),
     Time(TimeError),
     Ntp(NtpError),
@@ -24,6 +25,7 @@ impl Display for OmvError {
             Self::Cli(err) => write!(f, "{err}"),
             Self::Adapter(err) => write!(f, "{err}"),
             Self::Config(err) => write!(f, "{err}"),
+            Self::Finalization(err) => write!(f, "{err}"),
             Self::State(err) => write!(f, "{err}"),
             Self::Time(err) => write!(f, "{err}"),
             Self::Ntp(err) => write!(f, "{err}"),
@@ -50,6 +52,9 @@ pub enum CliError {
     MissingOutputValue,
     InvalidOutputMode(String),
     UnknownOption(String),
+    MissingEventAction,
+    UnknownEventAction(String),
+    MissingEventFieldValue(String),
     MissingAdapterAction,
     UnknownAdapterAction(String),
     MissingAgentValue,
@@ -67,6 +72,11 @@ impl Display for CliError {
             Self::MissingOutputValue => write!(f, "missing value after --output"),
             Self::InvalidOutputMode(mode) => write!(f, "invalid output mode: {mode}"),
             Self::UnknownOption(option) => write!(f, "unknown option: {option}"),
+            Self::MissingEventAction => write!(f, "missing event action after `event`"),
+            Self::UnknownEventAction(action) => write!(f, "unknown event action: {action}"),
+            Self::MissingEventFieldValue(field) => {
+                write!(f, "missing value after {field}")
+            }
             Self::MissingAdapterAction => write!(f, "missing adapter action after `adapter`"),
             Self::UnknownAdapterAction(action) => write!(f, "unknown adapter action: {action}"),
             Self::MissingAgentValue => write!(f, "missing value after --agent"),
@@ -157,6 +167,43 @@ impl std::error::Error for ConfigError {}
 impl From<ConfigError> for OmvError {
     fn from(value: ConfigError) -> Self {
         Self::Config(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum FinalizationError {
+    Parse { path: PathBuf, reason: String },
+    Missing { path: PathBuf },
+    MissingField(String),
+    InvalidField { field: String, value: String },
+}
+
+impl Display for FinalizationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse { path, reason } => {
+                write!(
+                    f,
+                    "failed to parse finalizations {}: {reason}",
+                    path.display()
+                )
+            }
+            Self::Missing { path } => {
+                write!(f, "missing finalizations file: {}", path.display())
+            }
+            Self::MissingField(field) => write!(f, "missing finalize-task field: {field}"),
+            Self::InvalidField { field, value } => {
+                write!(f, "invalid finalize-task field {field}: {value}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FinalizationError {}
+
+impl From<FinalizationError> for OmvError {
+    fn from(value: FinalizationError) -> Self {
+        Self::Finalization(value)
     }
 }
 
@@ -340,6 +387,9 @@ impl OmvError {
             Self::Cli(CliError::MissingOutputValue) => "missing_output_value",
             Self::Cli(CliError::InvalidOutputMode(_)) => "invalid_output_mode",
             Self::Cli(CliError::UnknownOption(_)) => "unknown_option",
+            Self::Cli(CliError::MissingEventAction) => "missing_event_action",
+            Self::Cli(CliError::UnknownEventAction(_)) => "unknown_event_action",
+            Self::Cli(CliError::MissingEventFieldValue(_)) => "missing_event_field_value",
             Self::Cli(CliError::MissingAdapterAction) => "missing_adapter_action",
             Self::Cli(CliError::UnknownAdapterAction(_)) => "unknown_adapter_action",
             Self::Cli(CliError::MissingAgentValue) => "missing_agent_value",
@@ -356,6 +406,12 @@ impl OmvError {
             Self::Config(ConfigError::InvalidBuildPolicy(_)) => "invalid_build_policy",
             Self::Config(ConfigError::Parse { .. }) => "config_parse_failed",
             Self::Config(ConfigError::Missing { .. }) => "missing_config",
+            Self::Finalization(FinalizationError::Parse { .. }) => "finalizations_parse_failed",
+            Self::Finalization(FinalizationError::Missing { .. }) => "missing_finalizations",
+            Self::Finalization(FinalizationError::MissingField(_)) => "missing_finalization_field",
+            Self::Finalization(FinalizationError::InvalidField { .. }) => {
+                "invalid_finalization_field"
+            }
             Self::State(StateError::Parse { .. }) => "state_parse_failed",
             Self::State(StateError::MissingState { .. }) => "missing_state",
             Self::Time(TimeError::InvalidDateFormat(_)) => "invalid_date_format",
@@ -391,6 +447,12 @@ impl OmvError {
             }
             Self::Cli(CliError::UnknownOption(option)) => {
                 map.insert(String::from("option"), Value::String(option.clone()));
+            }
+            Self::Cli(CliError::UnknownEventAction(action)) => {
+                map.insert(String::from("action"), Value::String(action.clone()));
+            }
+            Self::Cli(CliError::MissingEventFieldValue(field)) => {
+                map.insert(String::from("field"), Value::String(field.clone()));
             }
             Self::Cli(CliError::UnknownAdapterAction(action)) => {
                 map.insert(String::from("action"), Value::String(action.clone()));
@@ -428,6 +490,7 @@ impl OmvError {
                 map.insert(String::from("build_policy"), Value::String(policy.clone()));
             }
             Self::Config(ConfigError::Parse { path, reason })
+            | Self::Finalization(FinalizationError::Parse { path, reason })
             | Self::State(StateError::Parse { path, reason })
             | Self::Target(TargetError::Parse { path, reason }) => {
                 map.insert(
@@ -437,12 +500,20 @@ impl OmvError {
                 map.insert(String::from("reason"), Value::String(reason.clone()));
             }
             Self::Config(ConfigError::Missing { path })
+            | Self::Finalization(FinalizationError::Missing { path })
             | Self::State(StateError::MissingState { path })
             | Self::Target(TargetError::Missing { path }) => {
                 map.insert(
                     String::from("path"),
                     Value::String(path.display().to_string()),
                 );
+            }
+            Self::Finalization(FinalizationError::MissingField(field)) => {
+                map.insert(String::from("field"), Value::String(field.clone()));
+            }
+            Self::Finalization(FinalizationError::InvalidField { field, value }) => {
+                map.insert(String::from("field"), Value::String(field.clone()));
+                map.insert(String::from("value"), Value::String(value.clone()));
             }
             Self::Time(TimeError::InvalidDateFormat(value)) => {
                 map.insert(String::from("value"), Value::String(value.clone()));

@@ -17,17 +17,18 @@ Before submitting or committing, use this checklist to ensure work completeness.
 
 ```bash
 # Must pass
-pnpm lint
-pnpm type-check
-pnpm test
+cargo fmt --check
+cargo test --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-- [ ] `pnpm lint` passes with 0 errors?
-- [ ] `pnpm type-check` passes with no type errors?
-- [ ] Tests pass?
+- [ ] `cargo fmt --check` passes?
+- [ ] `cargo test --all-targets --all-features` passes?
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes?
 - [ ] No `console.log` statements (use logger)?
 - [ ] No non-null assertions (the `x!` operator)?
 - [ ] No `any` types?
+- [ ] No Clippy warnings hidden behind `#[allow(...)]` without a justified reason?
 
 ### 2. Code-Spec Sync
 
@@ -97,7 +98,9 @@ If the change spans multiple layers:
 
 ```bash
 # 1. Code checks
-pnpm lint && pnpm type-check
+cargo fmt --check
+cargo test --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
 
 # 2. View changes
 git status
@@ -117,6 +120,7 @@ git diff --name-only
 | Migration not created | Schema out of sync | Check db/migrations/ |
 | Types not synced | Runtime errors | Check shared types |
 | Tests not updated | False confidence | Run full test suite |
+| Clippy warnings ignored locally | Style/correctness regressions merge | Run `cargo clippy -- -D warnings` |
 | Console.log left in | Noisy production logs | Search for console.log |
 
 ---

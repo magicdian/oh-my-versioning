@@ -8,9 +8,9 @@
 
 Keep pure versioning/time/storage logic separate from CLI parsing, TUI
 rendering, language-target adapters, and AI/spec projection adapters. The goal
-is to let `omv bump`, `omv sync`, `omv current`, and `omv adapter ...` share
-one backend core instead of re-implementing the same behavior in different
-entry points.
+is to let `omv bump`, `omv sync`, `omv current`, `omv event finalize-task`, and
+`omv adapter ...` share one backend core instead of re-implementing the same
+behavior in different entry points.
 
 ## Directory Layout
 
@@ -22,6 +22,7 @@ src/
 ├── adapter.rs               # OMV AI/spec contract generation + adapter install flow
 ├── core/
 │   ├── adapter.rs           # adapter enums and install-mode types
+│   ├── finalization.rs      # finalize-task semantic decision rules
 │   ├── versioning/          # date/build-number rules and output strategies
 │   ├── time/                # system time, NTP, manual confirmation logic
 │   ├── locale/              # locale selection and normalization
@@ -31,6 +32,7 @@ src/
 │   ├── state.rs             # .omv/state.toml load/save
 │   ├── targets.rs           # .omv/targets.toml load/save
 │   ├── adapters.rs          # .omv/adapters.toml load/save
+│   ├── finalizations.rs     # .omv/finalizations.toml load/save
 │   └── atomic.rs            # write-temp + rename helpers
 ├── sync/
 │   ├── mod.rs               # target sync coordinator
@@ -90,6 +92,14 @@ Command handlers should compose:
 
 They should not duplicate version-bump or time-validation logic inline.
 
+For `omv event finalize-task` specifically:
+
+1. CLI parses event fields
+2. app validates request shape and loads persistence state
+3. core finalization logic decides whether the change is bumpable
+4. storage records pending/completed finalization audit entries
+5. existing bump/sync orchestration performs version mutation
+
 ### Rule: One adapter per language family
 
 Any file-format or manifest mutation belongs in `src/sync/<language>.rs`, never
@@ -115,7 +125,8 @@ in reusable modules. Do not re-derive them in every command.
 - Adapter traits: `<Domain>Noun`, for example `TargetSyncAdapter`,
   `TimeSource`
 - TOML schema types should mirror file names:
-  `OmvConfig`, `OmvState`, `OmvTargetRecord`, `OmvAdapters`
+  `OmvConfig`, `OmvState`, `OmvTargetRecord`, `OmvAdapters`,
+  `OmvFinalizations`
 
 ## Examples
 
@@ -124,6 +135,7 @@ Use these boundaries as the baseline pattern:
 - version calculation lives in `src/core/versioning/`
 - locale catalog loading lives in `src/i18n.rs`
 - `.omv` persistence lives in `src/storage/`
+- finalize-task semantic decision lives in `src/core/finalization.rs`
 - language-specific sync never bypasses `src/sync/`
 - agent/spec host projection never bypasses `src/adapter.rs`
 

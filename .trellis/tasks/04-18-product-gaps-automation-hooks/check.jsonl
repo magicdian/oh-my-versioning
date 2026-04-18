@@ -1,0 +1,8 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".opencode/commands/trellis/check.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Review ownership boundaries for the new event command flow"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify the new .omv finalization audit contract and error matrix"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify stable error classification and structured JSON envelopes"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check correctness-first behavior around automatic version mutation"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Check for duplicated versioning or storage logic in finalize flow"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check cross-layer consistency between event input, .omv writes, sync, and JSON output"}

@@ -9,6 +9,8 @@
 Most `omv` bugs will happen at boundaries:
 
 - time source -> version engine
+- task/spec completion metadata -> finalize-task event
+- finalize-task event -> `.omv/finalizations.toml`
 - version engine -> `.omv/state.toml`
 - `.omv` truth -> language-native manifests
 - `.omv` truth -> `.omv/ai/*` canonical contract
@@ -24,7 +26,7 @@ Most `omv` bugs will happen at boundaries:
 Use a concrete flow such as:
 
 ```text
-Time Source -> Version Engine -> .omv State -> Target Sync -> Runtime Exports -> User Output
+Task Metadata -> Finalize Event -> .omv/finalizations -> Version Engine -> .omv State -> Target Sync -> Runtime Exports -> User Output
 ```
 
 For each step, ask:
@@ -39,6 +41,7 @@ For each step, ask:
 | --- | --- |
 | system/NTP/manual date -> validated date | false trust, future-date corruption |
 | draft state -> persisted `.omv` | accidental partial saves |
+| finalize fingerprint -> `.omv/finalizations.toml` | duplicate bump or unrecoverable pending state |
 | `.omv` -> manifest sync | manifest drift from truth source |
 | `.omv/ai/*` -> host adapters | stale guidance or unmanaged overwrite |
 | typed result -> JSON envelope | automation breakage |
@@ -93,12 +96,14 @@ Before implementation:
 - [ ] Defined whether JSON output contracts are affected
 - [ ] Identified whether target sync is part of the command
 - [ ] Checked whether manifest files are outputs rather than truth
+- [ ] Defined whether the flow needs audit/idempotency state in `.omv/finalizations.toml`
 
 After implementation:
 
 - [ ] Tested Chinese and English output
 - [ ] Tested structured JSON output if automation paths changed
 - [ ] Tested bad/malformed `.omv` files
+- [ ] Tested duplicate finalize fingerprint behavior if automation can replay the event
 - [ ] Tested adapter refresh/install if host projections changed
 - [ ] Tested missing target manifest behavior
 - [ ] Verified state remains consistent after failure

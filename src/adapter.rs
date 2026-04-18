@@ -67,6 +67,12 @@ enum BackendPreference {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AdapterIdentity<'a> {
+    kind: AdapterKind,
+    name: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CanonicalTarget {
     source_rel: &'static str,
     host_rel: &'static str,
@@ -300,6 +306,7 @@ fn install_plan(
     preference: BackendPreference,
 ) -> Result<OmvAdapterInstallation, OmvError> {
     let mut installed_targets = Vec::new();
+    let identity = AdapterIdentity { kind, name };
 
     for target in targets {
         let source_path = omv_root.join(AI_DIR).join(target.source_rel);
@@ -310,8 +317,7 @@ fn install_plan(
             &host_path,
             target.source_rel,
             &rendered,
-            kind,
-            name,
+            identity,
             target.behavior,
             preference,
         )?;
@@ -338,8 +344,7 @@ fn install_target(
     host_path: &Path,
     source_rel: &str,
     rendered: &str,
-    kind: AdapterKind,
-    name: &str,
+    identity: AdapterIdentity<'_>,
     behavior: SourceInstallBehavior,
     preference: BackendPreference,
 ) -> Result<AdapterTargetMode, OmvError> {
@@ -347,7 +352,7 @@ fn install_target(
         SourceInstallBehavior::ManagedBlockOnly => {
             write_managed_block(
                 host_path,
-                managed_block_name(kind, name, source_rel),
+                managed_block_name(identity.kind, identity.name, source_rel),
                 rendered,
             )?;
             Ok(AdapterTargetMode::ManagedBlock)
@@ -363,7 +368,7 @@ fn install_target(
                 } else {
                     write_managed_block(
                         host_path,
-                        managed_block_name(kind, name, source_rel),
+                        managed_block_name(identity.kind, identity.name, source_rel),
                         rendered,
                     )?;
                     Ok(AdapterTargetMode::ManagedBlock)
@@ -433,12 +438,11 @@ fn try_install_symlink(source_path: &Path, host_path: &Path) -> Result<bool, Omv
 }
 
 fn is_same_symlink(host_path: &Path, source_path: &Path) -> bool {
-    if let Ok(link) = fs::read_link(host_path) {
-        if let Ok(canonical_link) = link.canonicalize() {
-            if let Ok(canonical_source) = source_path.canonicalize() {
-                return canonical_link == canonical_source;
-            }
-        }
+    if let Ok(link) = fs::read_link(host_path)
+        && let Ok(canonical_link) = link.canonicalize()
+        && let Ok(canonical_source) = source_path.canonicalize()
+    {
+        return canonical_link == canonical_source;
     }
     false
 }
@@ -505,27 +509,27 @@ fn replace_or_append_managed_block(
     end: &str,
     replacement: &str,
 ) -> String {
-    if let Some(start) = existing.find(begin) {
-        if let Some(end_idx) = existing[start..].find(end) {
-            let absolute_end = start + end_idx + end.len();
-            let mut output = String::with_capacity(existing.len() + replacement.len());
-            output.push_str(&existing[..start]);
-            if !output.ends_with('\n') && !output.is_empty() {
-                output.push('\n');
-            }
-            output.push_str(replacement);
-            if absolute_end < existing.len() {
-                let tail = &existing[absolute_end..];
-                if !tail.starts_with('\n') && !tail.is_empty() {
-                    output.push('\n');
-                }
-                output.push_str(tail.trim_start_matches('\n'));
-            }
-            if !output.ends_with('\n') {
-                output.push('\n');
-            }
-            return output;
+    if let Some(start) = existing.find(begin)
+        && let Some(end_idx) = existing[start..].find(end)
+    {
+        let absolute_end = start + end_idx + end.len();
+        let mut output = String::with_capacity(existing.len() + replacement.len());
+        output.push_str(&existing[..start]);
+        if !output.ends_with('\n') && !output.is_empty() {
+            output.push('\n');
         }
+        output.push_str(replacement);
+        if absolute_end < existing.len() {
+            let tail = &existing[absolute_end..];
+            if !tail.starts_with('\n') && !tail.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(tail.trim_start_matches('\n'));
+        }
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        return output;
     }
 
     let mut output = existing.trim_end().to_owned();

@@ -46,9 +46,12 @@ Partial writes can corrupt the source of truth.
 - adapter registry plus canonical `.omv/ai/*` generation for agent/spec
   projections
 - parity tests between `en-US` and `zh-CN`
+- `cargo clippy --all-targets --all-features -- -D warnings` as a blocking gate before merge
 
 ## Testing Requirements
 
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
 - unit tests for version calculation and time-validation branching
 - persistence round-trip tests for all `.omv` files
 - adapter tests for each supported language family

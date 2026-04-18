@@ -87,6 +87,9 @@ cat .trellis/spec/frontend/type-safety.md          # For types
 cat .trellis/spec/backend/database-guidelines.md   # For DB operations
 cat .trellis/spec/backend/type-safety.md           # For types
 cat .trellis/spec/backend/logging-guidelines.md    # For logging
+cargo fmt --check
+cargo test --all-targets --all-features
+cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 ---
@@ -262,7 +265,7 @@ This automatically:
 Use `/trellis:finish-work` command to run through:
 1. [OK] All code committed, commit message follows convention
 2. [OK] Session recorded via `add_session.py`
-3. [OK] No lint/test errors
+3. [OK] No formatting/test/clippy errors
 4. [OK] Working directory clean (or WIP noted)
 5. [OK] Spec docs updated if needed
 
@@ -347,7 +350,7 @@ python3 ./.trellis/scripts/task.py list-archive    # List archived tasks
    - [!] **Follow** `.trellis/spec/` guidelines
    - For cross-layer features, use `/trellis:check-cross-layer`
    - Develop only one task at a time
-   - Run lint and tests frequently
+   - Run `cargo fmt --check`, `cargo test --all-targets --all-features`, and `cargo clippy --all-targets --all-features -- -D warnings` frequently for backend work
 
 3. **After development complete**:
    - Use `/trellis:finish-work` for completion checklist
@@ -360,7 +363,7 @@ python3 ./.trellis/scripts/task.py list-archive    # List archived tasks
 1. [!] **Don't** skip reading `.trellis/spec/` guidelines
 2. [!] **Don't** let journal single file exceed 2000 lines
 3. **Don't** develop multiple unrelated tasks simultaneously
-4. **Don't** commit code with lint/test errors
+4. **Don't** commit code with formatting/test/clippy errors
 5. **Don't** forget to update spec docs after learning something
 6. [!] **Don't** execute `git commit` - AI should not commit code
 

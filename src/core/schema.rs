@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::adapter::{AdapterInstallMode, AdapterKind, AdapterTargetMode};
+use super::finalization::{
+    ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
+};
 use super::locale::OperatorLocale;
 use super::target::{PreProjectStrategy, ProjectProfile, TargetLanguage};
 use super::time::LastTimeSource;
@@ -128,4 +131,34 @@ pub struct OmvAdapterTarget {
     pub path: String,
     pub source_path: String,
     pub mode: AdapterTargetMode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmvFinalizations {
+    pub schema_version: u32,
+    pub entries: Vec<OmvFinalizationRecord>,
+}
+
+impl Default for OmvFinalizations {
+    fn default() -> Self {
+        Self {
+            schema_version: 1,
+            entries: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OmvFinalizationRecord {
+    pub task_id: String,
+    pub fingerprint: String,
+    pub change_type: ChangeType,
+    pub task_status: TaskStatus,
+    pub tests_status: TestsStatus,
+    pub source: String,
+    pub outcome: FinalizationOutcome,
+    pub reason: FinalizationReason,
+    pub version_before: String,
+    pub version_after: String,
+    pub recorded_at: String,
 }

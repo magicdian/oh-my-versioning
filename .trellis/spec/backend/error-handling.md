@@ -19,6 +19,7 @@ enum OmvError {
     Cli(CliError),
     Adapter(AdapterError),
     Config(ConfigError),
+    Finalization(FinalizationError),
     State(StateError),
     Time(TimeError),
     Ntp(NtpError),
@@ -42,18 +43,21 @@ Rules:
 
 ### 1. Scope / Trigger
 
-- Trigger: `omv bump`, `omv sync`, `omv current`, `omv adapter ...`, or any
-  command that validates current date against stored version state
+- Trigger: `omv bump`, `omv sync`, `omv current`, `omv event finalize-task`,
+  `omv adapter ...`, or any command that validates current date against stored
+  version state
 
 ### 2. Signatures
 
 ```rust
 fn run_bump(args: BumpArgs) -> Result<BumpResult, OmvError>;
+fn run_event(args: EventArgs) -> Result<EventResult, OmvError>;
 fn validate_current_date(
     config: &OmvConfig,
     state: &OmvState,
     time_source: &dyn TimeSource,
 ) -> Result<ValidatedDate, OmvError>;
+fn execute_finalize_task(args: FinalizeTaskArgs) -> Result<FinalizeTaskResult, OmvError>;
 fn render_error(locale: &Catalog, err: &OmvError) -> String;
 fn render_structured_error(command: &str, err: &OmvError) -> String;
 fn apply_runtime_ntp_override(config: &mut OmvConfig, no_ntp: bool);
@@ -70,6 +74,11 @@ fn apply_runtime_ntp_override(config: &mut OmvConfig, no_ntp: bool);
   state
 - `--no-ntp` is a runtime-only override and must never persist into
   `.omv/config.toml`
+- `omv event finalize-task` must fail fast on missing/invalid required fields
+  before writing pending audit state
+- duplicate finalize fingerprints are a success/no-op path, not an operator
+  error
+- pending finalize recovery may sync current state, but must not bump twice
 
 Structured error contract:
 
@@ -104,6 +113,10 @@ Rules:
 | NTP lookup fails and command requires strict validation | fail or request explicit skip flow | rerun with skip flag if appropriate |
 | `--no-ntp` passed for `omv bump` | use system-time source for this run only | rerun without flag to restore default NTP validation |
 | stored date > validated current date | block and ask for manual confirmation | operator confirms correct date |
+| finalize-task missing `--task-id`, `--change-type`, `--status`, `--tests`, `--fingerprint`, or `--source` | fail before mutation | caller must supply full completion metadata |
+| finalize-task uses unsupported change/status/tests value | fail before mutation | caller fixes enum-like field values |
+| duplicate finalize fingerprint already completed | return success result without second bump | caller may treat as idempotent completion |
+| pending finalize fingerprint already moved version truth | recover by syncing current state and mark recovered success | rerun finalize safely |
 | target manifest missing for registered existing target | fail sync for that target | repair target or rerun init |
 | adapter install targets existing unmanaged host file | fail without overwriting file | move file or choose another host path |
 | `--json` requested and command fails | emit structured envelope to stderr | inspect `error.code` and `error.details` |
@@ -117,10 +130,13 @@ Rules:
   localized success message
 - `omv adapter status --json` returns a stable envelope with installed adapter
   metadata
+- `omv event finalize-task --json` returns a stable success envelope for
+  `bumped`, `noop`, duplicate, and recovered paths
 
 #### Base
 
 - NTP is enabled, lookup succeeds, stored date is equal to validated today
+- finalize-task is called once with a new semantic fingerprint and passing tests
 
 #### Bad
 
@@ -128,6 +144,7 @@ Rules:
   defaults
 - adapter install overwrites an unmanaged `AGENTS.md` without surfacing a
   conflict
+- finalize-task sees a duplicate fingerprint and bumps a second time anyway
 
 ### 6. Tests Required
 
@@ -137,6 +154,10 @@ Rules:
 - malformed config returns deterministic parse/validation error
 - target sync failure leaves state/manifests consistent according to command
   transaction strategy
+- finalize-task missing field returns typed validation error
+- finalize-task invalid enum-like field returns typed validation error
+- finalize-task duplicate fingerprint returns structured success instead of
+  error
 
 Assertion points:
 
@@ -144,6 +165,8 @@ Assertion points:
 - stderr text is locale-aware
 - error variants carry machine-usable classification
 - JSON failures preserve a stable top-level envelope
+- finalize-task idempotency does not rely on string matching or best-effort
+  caller behavior
 
 ### 7. Wrong vs Correct
 
