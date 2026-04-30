@@ -217,3 +217,54 @@ Added finalize-task bump automation with audit and dedupe, enforced cargo clippy
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Brainstorm platformized host integrations and finalize boundary
+
+**Date**: 2026-04-18
+**Task**: Brainstorm platformized host integrations and finalize boundary
+**Branch**: `dev`
+
+### Summary
+
+Captured the MVP product boundary for platformized host integrations, init/apply workflow, and Trellis-driven finalize automation without starting implementation yet.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| Product model | Locked layered composition as the user-facing model and provider/plugin as the long-term internal architecture direction. |
+| MVP depth | Scoped MVP to an internal provider registry plus capability-oriented integration state, without exposing a full external plugin platform yet. |
+| Integration state | Added `.omv/integrations.toml` as the new persistence boundary for selected integrations, capability status, and last known detection snapshot. |
+| Command surface | Chose `omv integrate status` and `omv integrate apply` as the new primary workflow commands, while keeping `omv adapter ...` as a temporary compatibility alias. |
+| Init/apply behavior | Locked a guarded auto-install flow: save integration state first, show a mandatory review step, run a targeted worktree safety check on affected files, auto-apply only when safe, and otherwise ask the user to run apply explicitly. |
+| Failure model | Chose best-effort partial installation with capability-level `selected / pending / installed / failed` status and stable failure reason codes plus display messages. |
+| MVP support matrix | Restricted MVP host support to `codex` + `trellis` only, while keeping the design combinable for future pairs such as `codex + openspec` and `claude + trellis`. |
+| Finalize boundary | Locked the first automation boundary to Trellis `/trellis:finish-work`, patched through one OMV-managed block on the active platform-resolved completion surface. |
+| Finalize helper | Chose an OMV-native generic helper exposed through `.omv/ai/contract.json`, with task auto-resolution from active Trellis context and structured boundary identity flattened to the legacy finalize `source`. |
+| Idempotency | Defined finalize dedupe fingerprinting as `task identity + boundary identity + workspace snapshot hash`, with normalization of OMV-managed version outputs to avoid false rerun bumps. |
+| Missing `change_type` | Locked interactive recovery: when `change_type` is missing, the host skill should ask the user to choose from the enum, never infer/default the value, and leave finalization pending if interaction cannot be completed. |
+
+**Updated Files**:
+- `.trellis/tasks/04-18-platformized-host-integrations/prd.md`
+
+**Notes**:
+- This was a planning-only session; no implementation, tests, or release-facing code changes were produced.
+- The task remains active and unarchived because the next step is to split the PRD into implementation work.
+
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
