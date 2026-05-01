@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
+- **Total Sessions**: 9
 - **Last Active**: 2026-05-02
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~337 | Active |
+| `journal-1.md` | ~371 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-05-02 | External project scenario validation | `e929ca1`, `7291b06` | `dev` |
 | 8 | 2026-05-02 | Platformized host integrations | `93ebb74` | `dev` |
 | 7 | 2026-05-01 | OMV contract architecture and generalized targets | `a7a3ae8`, `94486e7` | `dev` |
 | 6 | 2026-04-18 | Brainstorm platformized host integrations and finalize boundary | - | `dev` |

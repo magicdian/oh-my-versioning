@@ -335,3 +335,37 @@ Implemented platformized host integrations with provider/capability state, integ
 ### Next Steps
 
 - None - task complete
+
+
+## Session 9: External project scenario validation
+
+**Date**: 2026-05-02
+**Task**: External project scenario validation
+**Branch**: `dev`
+
+### Summary
+
+Added TOML-driven ignored external scenario tests for wiremux, deterministic app runtime time injection for bump tests, .DS_Store/IDE ignores, and backend specs for external scenario contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e929ca1` | (see git log) |
+| `7291b06` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
