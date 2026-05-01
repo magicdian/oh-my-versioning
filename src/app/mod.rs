@@ -9,6 +9,7 @@ use crate::cli::{
     AdapterAction, AdapterCommand, Cli, Command, EventAction, EventCommand, FinalizeTaskCommand,
     OutputMode,
 };
+use crate::contract::registry::STRUCTURED_JSON_CONTRACT_VERSION;
 use crate::core::date::LogicalDate;
 use crate::core::finalization::{
     self, ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
@@ -26,8 +27,6 @@ use crate::i18n::{self, Catalog};
 use crate::storage;
 use crate::ui::app as init_ui_state;
 use crate::ui::state::draft::InitDraft;
-
-const STRUCTURED_CONTRACT_VERSION: &str = "1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppOutput {
@@ -113,7 +112,8 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
     match cli.command {
         Command::Init => run_init(&omv_root, &catalog, &locale, cli.output_mode),
         Command::Bump => run_bump(&omv_root, &catalog, ntp_override, cli.output_mode),
-        Command::Sync => run_sync(&omv_root, &catalog, cli.output_mode),
+        Command::Plan => run_plan(&omv_root, &catalog, cli.output_mode),
+        Command::Sync(command) => run_sync(&omv_root, &catalog, cli.output_mode, command.check),
         Command::Current => run_current(&omv_root, &catalog, cli.output_mode),
         Command::Event(event_command) => run_event(
             &omv_root,
@@ -146,6 +146,7 @@ fn render_help(catalog: &Catalog) -> String {
         catalog.t("cli.help.commands.title"),
         format!("  {}", catalog.t("cli.help.commands.init")),
         format!("  {}", catalog.t("cli.help.commands.bump")),
+        format!("  {}", catalog.t("cli.help.commands.plan")),
         format!("  {}", catalog.t("cli.help.commands.sync")),
         format!("  {}", catalog.t("cli.help.commands.current")),
         format!("  {}", catalog.t("cli.help.commands.event")),
@@ -164,6 +165,7 @@ fn render_help(catalog: &Catalog) -> String {
         catalog.t("cli.help.examples.title"),
         format!("  {}", catalog.t("cli.help.examples.init")),
         format!("  {}", catalog.t("cli.help.examples.bump")),
+        format!("  {}", catalog.t("cli.help.examples.plan")),
         format!("  {}", catalog.t("cli.help.examples.sync")),
         format!("  {}", catalog.t("cli.help.examples.current")),
         format!("  {}", catalog.t("cli.help.examples.event")),
@@ -207,7 +209,7 @@ pub fn render_error(locale: &str, err: &OmvError) -> String {
 pub fn render_structured_error(command: &str, err: &OmvError) -> String {
     let envelope = StructuredEnvelope::<serde_json::Value> {
         ok: false,
-        contract_version: STRUCTURED_CONTRACT_VERSION,
+        contract_version: STRUCTURED_JSON_CONTRACT_VERSION,
         command: command.to_owned(),
         data: None,
         error: Some(err.structured_error()),
@@ -278,7 +280,12 @@ fn run_sync(
     omv_root: &Path,
     catalog: &Catalog,
     output_mode: OutputMode,
+    check: bool,
 ) -> Result<AppOutput, OmvError> {
+    if check {
+        return run_sync_check(omv_root, catalog, output_mode);
+    }
+
     let execution = execute_sync(omv_root)?;
     let synced = execution.synced.to_string();
     let skipped = execution.skipped.to_string();
@@ -296,6 +303,54 @@ fn run_sync(
             ],
         ),
         OutputMode::Json => render_structured_success("sync", &execution),
+    };
+
+    Ok(AppOutput { message })
+}
+
+fn run_plan(
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+) -> Result<AppOutput, OmvError> {
+    let plan = execute_plan(omv_root)?;
+    let message = match output_mode {
+        OutputMode::Text => render_plan_text(catalog, &plan),
+        OutputMode::Json => render_structured_success("plan", &plan),
+    };
+
+    Ok(AppOutput { message })
+}
+
+fn run_sync_check(
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+) -> Result<AppOutput, OmvError> {
+    let plan = execute_plan(omv_root)?;
+    if plan.has_required_drift() {
+        let plan_value = serde_json::to_value(&plan).expect("plan should serialize");
+        return Err(TargetError::CheckFailed {
+            reason: String::from("required target drift or missing target detected"),
+            plan: Box::new(plan_value),
+        }
+        .into());
+    }
+
+    let message = match output_mode {
+        OutputMode::Text => {
+            let targets = plan.targets.len().to_string();
+            catalog.tf(
+                "cli.sync.check.success",
+                &[
+                    "version",
+                    plan.version.as_str(),
+                    "targets",
+                    targets.as_str(),
+                ],
+            )
+        }
+        OutputMode::Json => render_structured_success("sync.check", &plan),
     };
 
     Ok(AppOutput { message })
@@ -469,12 +524,62 @@ fn finalization_reason_text(catalog: &Catalog, reason: &str) -> String {
 fn render_structured_success<T: Serialize>(command: &str, data: T) -> String {
     let envelope = StructuredEnvelope {
         ok: true,
-        contract_version: STRUCTURED_CONTRACT_VERSION,
+        contract_version: STRUCTURED_JSON_CONTRACT_VERSION,
         command: command.to_owned(),
         data: Some(data),
         error: None,
     };
     serde_json::to_string_pretty(&envelope).expect("structured success should serialize")
+}
+
+fn render_plan_text(catalog: &Catalog, plan: &crate::sync::PlanSummary) -> String {
+    let mut lines = vec![catalog.tf(
+        "cli.plan.header",
+        &[
+            "version",
+            plan.version.as_str(),
+            "status",
+            plan.project_status.as_str(),
+        ],
+    )];
+
+    for target in &plan.targets {
+        let paths = target.paths.join(", ");
+        lines.push(catalog.tf(
+            "cli.plan.target",
+            &[
+                "id",
+                target.id.as_str(),
+                "status",
+                target.status.as_str(),
+                "paths",
+                paths.as_str(),
+            ],
+        ));
+        for diagnostic in &target.diagnostics {
+            lines.push(catalog.tf("cli.plan.diagnostic", &["detail", diagnostic.as_str()]));
+        }
+    }
+
+    let ok = plan.totals.ok.to_string();
+    let drift = plan.totals.drift.to_string();
+    let missing = plan.totals.missing.to_string();
+    let skipped = plan.totals.skipped.to_string();
+    lines.push(catalog.tf(
+        "cli.plan.totals",
+        &[
+            "ok",
+            ok.as_str(),
+            "drift",
+            drift.as_str(),
+            "missing",
+            missing.as_str(),
+            "skipped",
+            skipped.as_str(),
+        ],
+    ));
+
+    lines.join("\n")
 }
 
 fn render_adapter_list_text(catalog: &Catalog, available: &adapter::AdapterCatalog) -> String {
@@ -875,6 +980,29 @@ fn execute_sync(omv_root: &Path) -> Result<SyncExecution, OmvError> {
     })
 }
 
+fn execute_plan(omv_root: &Path) -> Result<crate::sync::PlanSummary, OmvError> {
+    let state = storage::state::load_state(omv_root)?;
+    let targets = load_targets_if_exists(omv_root)?;
+    let project_root = omv_root.parent().unwrap_or(omv_root);
+    let mut plan =
+        crate::sync::plan_all_targets(project_root, &targets, &state.last_issued_version);
+
+    let adapters = storage::adapters::load_adapters_if_exists(omv_root)?;
+    if adapters
+        .installations
+        .iter()
+        .any(|installation| installation.source_contract_version < adapter::CONTRACT_VERSION)
+    {
+        plan.migration_status
+            .push(String::from("adapter-refresh-needed"));
+        if plan.project_status == "current-project" {
+            plan.project_status = String::from("adapter-refresh-needed");
+        }
+    }
+
+    Ok(plan)
+}
+
 fn persist_init_state(omv_root: &Path, draft: &InitDraft) -> Result<(), OmvError> {
     std::fs::create_dir_all(omv_root)?;
 
@@ -914,6 +1042,7 @@ fn build_targets_from_draft(draft: &InitDraft) -> OmvTargets {
     OmvTargets {
         schema_version: 1,
         targets,
+        v2_targets: Vec::new(),
     }
 }
 

@@ -65,6 +65,161 @@ impl TargetLanguage {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetKind {
+    TextScalar,
+    RegexReplace,
+    MarkdownManagedBlock,
+    YamlScalar,
+    CHeaderMacro,
+    CargoWorkspace,
+}
+
+impl TargetKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TextScalar => "text-scalar",
+            Self::RegexReplace => "regex-replace",
+            Self::MarkdownManagedBlock => "markdown-managed-block",
+            Self::YamlScalar => "yaml-scalar",
+            Self::CHeaderMacro => "c-header-macro",
+            Self::CargoWorkspace => "cargo-workspace",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "text-scalar" => Some(Self::TextScalar),
+            "regex-replace" => Some(Self::RegexReplace),
+            "markdown-managed-block" => Some(Self::MarkdownManagedBlock),
+            "yaml-scalar" => Some(Self::YamlScalar),
+            "c-header-macro" => Some(Self::CHeaderMacro),
+            "cargo-workspace" => Some(Self::CargoWorkspace),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TargetMode {
+    #[default]
+    Write,
+    Check,
+}
+
+impl TargetMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Write => "write",
+            Self::Check => "check",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "write" => Some(Self::Write),
+            "check" => Some(Self::Check),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CargoMembers {
+    #[default]
+    All,
+}
+
+impl CargoMembers {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "all" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CargoVersionPolicy {
+    #[default]
+    Same,
+}
+
+impl CargoVersionPolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Same => "same",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "same" => Some(Self::Same),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CargoVersionLocation {
+    #[default]
+    Auto,
+    WorkspacePackage,
+    MemberPackages,
+}
+
+impl CargoVersionLocation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::WorkspacePackage => "workspace-package",
+            Self::MemberPackages => "member-packages",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "auto" => Some(Self::Auto),
+            "workspace-package" => Some(Self::WorkspacePackage),
+            "member-packages" => Some(Self::MemberPackages),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CargoLockfileStrategy {
+    #[default]
+    Check,
+    Update,
+    Ignore,
+}
+
+impl CargoLockfileStrategy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Check => "check",
+            Self::Update => "update",
+            Self::Ignore => "ignore",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "check" => Some(Self::Check),
+            "update" => Some(Self::Update),
+            "ignore" => Some(Self::Ignore),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PreProjectStrategy {
     #[default]

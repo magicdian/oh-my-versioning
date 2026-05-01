@@ -20,6 +20,7 @@ src/
 ├── cli/                     # clap commands, flags, dispatch
 ├── app/                     # orchestration layer for commands/use-cases
 ├── adapter.rs               # OMV AI/spec contract generation + adapter install flow
+├── contract/                # generated protobuf boundary + handwritten capability registry
 ├── core/
 │   ├── adapter.rs           # adapter enums and install-mode types
 │   ├── finalization.rs      # finalize-task semantic decision rules
@@ -35,8 +36,10 @@ src/
 │   ├── finalizations.rs     # .omv/finalizations.toml load/save
 │   └── atomic.rs            # write-temp + rename helpers
 ├── sync/
-│   ├── mod.rs               # target sync coordinator
+│   ├── mod.rs               # deterministic plan model, check mode, and sync coordinator
 │   ├── rust.rs              # Cargo.toml + runtime export sync
+│   ├── generic.rs           # V2 text, regex, Markdown, YAML, and C-header target planners
+│   ├── cargo_workspace.rs   # V2 Cargo workspace member and lockfile planner
 │   ├── python.rs
 │   ├── go.rs
 │   ├── java.rs
@@ -53,6 +56,10 @@ resources/
 └── i18n/
     ├── en-US.toml
     └── zh-CN.toml
+
+proto/
+└── omv/contract/v1/
+    └── contract.proto       # protobuf source for contract v1 generated Rust stubs
 
 tests/
 ├── cli/
@@ -105,6 +112,17 @@ For `omv event finalize-task` specifically:
 Any file-format or manifest mutation belongs in `src/sync/<language>.rs`, never
 inside CLI parsing or TUI event handling.
 
+Language adapters must compute a deterministic plan before writes are applied.
+`omv plan`, `omv sync --check`, `omv sync`, and post-`omv bump` sync all share
+the same plan model.
+
+### Rule: Keep generated contract code behind `src/contract/`
+
+`proto/omv/contract/v1/*.proto` is compiled by `build.rs` into `OUT_DIR`.
+Generated Rust code is included from `src/contract/mod.rs`, is not committed,
+and must not contain handwritten business logic. Capability registration and
+domain mapping live in handwritten Rust under `src/contract/`.
+
 ### Rule: Keep AI/spec adapter projection separate from language sync
 
 `src/adapter.rs` owns generation of `.omv/ai/*` and projection into host files
@@ -137,7 +155,11 @@ Use these boundaries as the baseline pattern:
 - `.omv` persistence lives in `src/storage/`
 - finalize-task semantic decision lives in `src/core/finalization.rs`
 - language-specific sync never bypasses `src/sync/`
+- capability IDs never bypass `src/contract/registry.rs`
 - agent/spec host projection never bypasses `src/adapter.rs`
+- generalized V2 target parsing never bypasses `src/storage/targets.rs`
+- V2 target writes never bypass the shared `src/sync/mod.rs` plan/apply
+  boundary
 
 ## Common Mistakes
 

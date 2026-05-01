@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package omv.contract.v1;
+
+enum OmvTargetSupport {
+  OMV_TARGET_SUPPORT_UNSPECIFIED = 0;
+  OMV_TARGET_SUPPORT_RUST_CARGO_PACKAGE = 1;
+  OMV_TARGET_SUPPORT_PYTHON_MANIFEST = 2;
+  OMV_TARGET_SUPPORT_GO_MODULE = 3;
+  OMV_TARGET_SUPPORT_JAVA_MAVEN = 4;
+  OMV_TARGET_SUPPORT_C_CMAKE = 5;
+  OMV_TARGET_SUPPORT_RUNTIME_EXPORT = 6;
+  OMV_TARGET_SUPPORT_TEXT_SCALAR = 7;
+  OMV_TARGET_SUPPORT_REGEX_REPLACE = 8;
+  OMV_TARGET_SUPPORT_MARKDOWN_MANAGED_BLOCK = 9;
+  OMV_TARGET_SUPPORT_YAML_SCALAR = 10;
+  OMV_TARGET_SUPPORT_C_HEADER_MACRO = 11;
+  OMV_TARGET_SUPPORT_CARGO_WORKSPACE = 12;
+
+  reserved 100 to 199;
+}
+
+enum OmvCommandSupport {
+  OMV_COMMAND_SUPPORT_UNSPECIFIED = 0;
+  OMV_COMMAND_SUPPORT_CURRENT = 1;
+  OMV_COMMAND_SUPPORT_BUMP = 2;
+  OMV_COMMAND_SUPPORT_SYNC = 3;
+  OMV_COMMAND_SUPPORT_ADAPTER = 4;
+  OMV_COMMAND_SUPPORT_EVENT_FINALIZE_TASK = 5;
+  OMV_COMMAND_SUPPORT_PLAN = 6;
+}
+
+enum OmvPlanStatus {
+  OMV_PLAN_STATUS_UNSPECIFIED = 0;
+  OMV_PLAN_STATUS_OK = 1;
+  OMV_PLAN_STATUS_DRIFT = 2;
+  OMV_PLAN_STATUS_MISSING = 3;
+  OMV_PLAN_STATUS_UNSUPPORTED = 4;
+  OMV_PLAN_STATUS_ERROR = 5;
+  OMV_PLAN_STATUS_SKIPPED = 6;
+}
+
+message OmvCapabilitySet {
+  uint32 contract_version = 1;
+  repeated OmvTargetSupport target_support = 2;
+  repeated OmvCommandSupport command_support = 3;
+  repeated string json_contract_support = 4;
+  uint32 ai_adapter_contract_version = 5;
+
+  reserved 20 to 39;
+}
+
+message OmvPlanOperation {
+  string kind = 1;
+  string path = 2;
+  string summary = 3;
+}
+
+message OmvPlanTargetResult {
+  string id = 1;
+  string adapter = 2;
+  string kind = 3;
+  repeated string paths = 4;
+  string current_value_summary = 5;
+  string expected_value_summary = 6;
+  OmvPlanStatus status = 7;
+  repeated OmvPlanOperation operations = 8;
+  repeated string diagnostics = 9;
+  bool required = 10;
+}
+
+message OmvPlanSummary {
+  uint32 contract_version = 1;
+  string version = 2;
+  repeated OmvPlanTargetResult targets = 3;
+  repeated string diagnostics = 4;
+
+  reserved 20 to 39;
+}

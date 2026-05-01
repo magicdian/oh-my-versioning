@@ -21,12 +21,18 @@ impl OutputMode {
 pub enum Command {
     Init,
     Bump,
-    Sync,
+    Plan,
+    Sync(SyncCommand),
     Current,
     Event(EventCommand),
     Adapter(AdapterCommand),
     Help,
     Version,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SyncCommand {
+    pub check: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,7 +131,8 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
         match arg.as_str() {
             "init" => command = Command::Init,
             "bump" => command = Command::Bump,
-            "sync" => command = Command::Sync,
+            "plan" => command = Command::Plan,
+            "sync" => command = Command::Sync(parse_sync_command(&mut args)?),
             "current" => command = Command::Current,
             "event" => command = Command::Event(parse_event_command(&mut args)?),
             "adapter" => command = Command::Adapter(parse_adapter_command(&mut args)?),
@@ -142,6 +149,20 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
         ntp_override,
         output_mode,
     })
+}
+
+fn parse_sync_command(args: &mut std::vec::IntoIter<String>) -> Result<SyncCommand, OmvError> {
+    let mut command = SyncCommand::default();
+
+    for arg in args.by_ref() {
+        match arg.as_str() {
+            "--check" => command.check = true,
+            other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
+            other => return Err(CliError::UnknownCommand(other.to_owned()).into()),
+        }
+    }
+
+    Ok(command)
 }
 
 type GlobalFlags = (Vec<String>, Option<String>, Option<bool>, OutputMode);
@@ -315,6 +336,24 @@ mod tests {
             .expect("no-ntp flag should parse");
         assert_eq!(cli.command, Command::Bump);
         assert_eq!(cli.ntp_override, Some(false));
+    }
+
+    #[test]
+    fn parses_plan_command() {
+        let cli = parse_args(vec!["plan".to_owned(), "--json".to_owned()])
+            .expect("plan command should parse");
+        assert_eq!(cli.command, Command::Plan);
+        assert_eq!(cli.output_mode, OutputMode::Json);
+    }
+
+    #[test]
+    fn parses_sync_check() {
+        let cli = parse_args(vec!["sync".to_owned(), "--check".to_owned()])
+            .expect("sync check should parse");
+        match cli.command {
+            Command::Sync(command) => assert!(command.check),
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 
     #[test]

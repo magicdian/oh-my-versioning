@@ -88,8 +88,20 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
             "current": {
                 "read": ["omv current --json", "omv current --output json"]
             },
+            "plan": {
+                "read": ["omv plan --json", "omv plan --output json"],
+                "mutates": false
+            },
+            "sync_check": {
+                "read": ["omv sync --check --json", "omv sync --check --output json"],
+                "mutates": false
+            },
             "bump": {
                 "write": ["omv bump --json", "omv bump --output json"],
+                "syncs_targets": true
+            },
+            "sync": {
+                "write": ["omv sync --json", "omv sync --output json"],
                 "syncs_targets": true
             }
         },
@@ -102,7 +114,15 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "rules": {
             "native_manifests_are_derived_outputs": true,
             "runtime_exports_are_read_only_views": true,
-            "do_not_edit_native_manifest_versions_directly": true
+            "do_not_edit_native_manifest_versions_directly": true,
+            "generalized_target_kinds": [
+                "text-scalar",
+                "regex-replace",
+                "markdown-managed-block",
+                "yaml-scalar",
+                "c-header-macro",
+                "cargo-workspace"
+            ]
         }
     });
     storage::atomic::write_atomically(
@@ -117,8 +137,12 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "",
         "- Version truth lives in `.omv/state.toml`.",
         "- Read the current managed version with `omv current --json`.",
+        "- Preview target drift and proposed writes with `omv plan --json`.",
+        "- Check target drift without mutation with `omv sync --check --json`.",
         "- Change the managed version with `omv bump --json`.",
+        "- `.omv/targets.toml` schema V2 can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces.",
         "- Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.",
+        "- Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.",
         "- Treat runtime export files such as `src/generated/version.rs` and `include/omv_version.h` as generated read-only views.",
         "",
         "When integrating OMV with agents or spec frameworks, keep the detailed rules in `.omv/ai/*` and project only thin host adapters into external files.",
@@ -572,7 +596,7 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "",
                 "@./.omv/ai/instructions.md",
                 "",
-                "Use `omv current --json` to read version truth and `omv bump --json` to update it.",
+                "Use `omv current --json` to read version truth, `omv plan --json` to preview target sync, `omv sync --check --json` to detect drift, and `omv bump --json` to update it.",
             ]
             .join("\n"),
         ),
@@ -585,6 +609,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "Read `./.omv/ai/instructions.md` before touching project versions.",
                 "",
                 "- Use `omv current --json` to inspect the managed version.",
+                "- Use `omv plan --json` before editing version-sensitive surfaces.",
+                "- Use `omv sync --check --json` to verify target drift without writing.",
                 "- Use `omv bump --json` to advance the managed version.",
                 "- Do not edit native manifest versions directly.",
             ]
@@ -601,8 +627,9 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "",
                 "1. Read `./.omv/ai/instructions.md`.",
                 "2. Use `omv current --json` to inspect current version truth.",
-                "3. Use `omv bump --json` to mutate version truth.",
-                "4. Do not hand-edit manifest versions.",
+                "3. Use `omv plan --json` or `omv sync --check --json` before changing version-sensitive files.",
+                "4. Use `omv bump --json` to mutate version truth.",
+                "5. Do not hand-edit manifest versions.",
             ]
             .join("\n"),
         ),
@@ -616,6 +643,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "",
                 "- Version truth: `.omv/state.toml`",
                 "- Read current version: `omv current --json`",
+                "- Preview sync plan: `omv plan --json`",
+                "- Check drift without writes: `omv sync --check --json`",
                 "- Update version truth: `omv bump --json`",
                 "- Native manifests are synchronized outputs, not authority",
                 "",
@@ -633,6 +662,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "",
                 "- The project MUST treat `.omv/state.toml` as version truth.",
                 "- Workflows MUST read current version via `omv current --json`.",
+                "- Workflows SHOULD preview target changes via `omv plan --json`.",
+                "- Workflows SHOULD gate drift via `omv sync --check --json` before manual edits or CI checks.",
                 "- Workflows MUST update managed version via `omv bump --json`.",
                 "- Native manifests and runtime export files MUST be treated as derived outputs.",
             ]
@@ -646,6 +677,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "",
                 "- `.omv/state.toml` is the version source of truth.",
                 "- Use `omv current --json` for reads.",
+                "- Use `omv plan --json` to preview target changes.",
+                "- Use `omv sync --check --json` to verify drift without mutation.",
                 "- Use `omv bump --json` for writes.",
                 "- Do not trust manifest versions as authority.",
                 "",
@@ -690,6 +723,8 @@ mod tests {
         let instructions = fs::read_to_string(omv_root.join("ai/instructions.md"))
             .expect("instructions should exist");
         assert!(instructions.contains("omv current --json"));
+        assert!(instructions.contains("omv plan --json"));
+        assert!(instructions.contains("omv sync --check --json"));
 
         cleanup_root(&omv_root);
     }

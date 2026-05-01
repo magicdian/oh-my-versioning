@@ -286,6 +286,7 @@ pub enum TargetError {
     InvalidTargetRecord(String),
     Parse { path: PathBuf, reason: String },
     Missing { path: PathBuf },
+    CheckFailed { reason: String, plan: Box<Value> },
 }
 
 impl Display for TargetError {
@@ -296,6 +297,7 @@ impl Display for TargetError {
                 write!(f, "failed to parse targets {}: {reason}", path.display())
             }
             Self::Missing { path } => write!(f, "missing targets file: {}", path.display()),
+            Self::CheckFailed { reason, .. } => write!(f, "sync check failed: {reason}"),
         }
     }
 }
@@ -420,6 +422,7 @@ impl OmvError {
             Self::Target(TargetError::InvalidTargetRecord(_)) => "invalid_target_record",
             Self::Target(TargetError::Parse { .. }) => "targets_parse_failed",
             Self::Target(TargetError::Missing { .. }) => "missing_targets",
+            Self::Target(TargetError::CheckFailed { .. }) => "sync_check_failed",
             Self::I18n(I18nError::ParseCatalog { .. }) => "catalog_parse_failed",
             Self::I18n(I18nError::MissingKey(_)) => "missing_i18n_key",
             Self::I18n(I18nError::CatalogParity { .. }) => "catalog_parity_mismatch",
@@ -527,6 +530,10 @@ impl OmvError {
             }
             Self::Target(TargetError::InvalidTargetRecord(reason)) => {
                 map.insert(String::from("reason"), Value::String(reason.clone()));
+            }
+            Self::Target(TargetError::CheckFailed { reason, plan }) => {
+                map.insert(String::from("reason"), Value::String(reason.clone()));
+                map.insert(String::from("plan"), (**plan).clone());
             }
             Self::I18n(I18nError::ParseCatalog { locale, reason }) => {
                 map.insert(String::from("locale"), Value::String(locale.clone()));

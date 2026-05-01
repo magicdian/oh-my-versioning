@@ -79,6 +79,9 @@ fn apply_runtime_ntp_override(config: &mut OmvConfig, no_ntp: bool);
 - duplicate finalize fingerprints are a success/no-op path, not an operator
   error
 - pending finalize recovery may sync current state, but must not bump twice
+- `omv sync --check` must return a typed target error on required drift,
+  missing targets, unsupported targets, or planning errors; JSON error details
+  should include the deterministic plan so automation can inspect failures
 
 Structured error contract:
 
@@ -118,6 +121,12 @@ Rules:
 | duplicate finalize fingerprint already completed | return success result without second bump | caller may treat as idempotent completion |
 | pending finalize fingerprint already moved version truth | recover by syncing current state and mark recovered success | rerun finalize safely |
 | target manifest missing for registered existing target | fail sync for that target | repair target or rerun init |
+| malformed V2 target record | fail before planning writes | fix required fields or supported enum values |
+| V2 regex target has zero or ambiguous matches | fail planning for that target | refine pattern or set `allow_multiple = true` intentionally |
+| V2 Markdown managed block markers are missing, duplicated, or inverted | fail planning for that target | repair markers |
+| V2 YAML scalar uses unsupported YAML feature | fail planning for that target | use a simple mapping scalar path or a future fuller YAML adapter |
+| V2 Cargo workspace lockfile drifts with `lockfile = "check"` | fail `sync --check`; `sync` does not run broad cargo updates | choose `lockfile = "update"` for narrow package-line updates |
+| `omv sync --check` detects required drift | fail without writing files | inspect `omv plan` or run `omv sync` intentionally |
 | adapter install targets existing unmanaged host file | fail without overwriting file | move file or choose another host path |
 | `--json` requested and command fails | emit structured envelope to stderr | inspect `error.code` and `error.details` |
 | i18n key missing in selected locale | fall back to `en-US`; if absent there too, return key text | fix catalog parity |
@@ -154,6 +163,11 @@ Rules:
 - malformed config returns deterministic parse/validation error
 - target sync failure leaves state/manifests consistent according to command
   transaction strategy
+- sync check drift failure returns a typed structured error and leaves target
+  files unchanged
+- malformed V2 target records return `invalid_target_record`
+- V2 adapter planning failures appear as target plan errors and do not write
+  files in `omv plan` or `omv sync --check`
 - finalize-task missing field returns typed validation error
 - finalize-task invalid enum-like field returns typed validation error
 - finalize-task duplicate fingerprint returns structured success instead of

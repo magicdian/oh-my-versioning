@@ -112,6 +112,37 @@ Rules:
 - `strategy` records how the target should behave when the project did not
   exist yet during `omv init`
 - native manifest files are synchronized outputs, not authoritative inputs
+- V1 records remain compatible in Stage 2 and may coexist with V2 records when
+  `schema_version = 2`
+
+Required V2 shape:
+
+```toml
+schema_version = 2
+
+[[targets]]
+id = "root-version-file"
+kind = "text-scalar"
+adapter = "text"
+path = "VERSION"
+selector = "whole-file"
+template = "{version}\n"
+mode = "write"
+```
+
+Rules:
+
+- V2 target records use `kind`, not `language`, for generalized targets.
+- Supported V2 kinds are `text-scalar`, `regex-replace`,
+  `markdown-managed-block`, `yaml-scalar`, `c-header-macro`, and
+  `cargo-workspace`.
+- malformed V2 records must fail load with `TargetError::InvalidTargetRecord`
+  before sync writes begin.
+- `yaml-scalar` currently supports simple mapping scalar paths only; sequences,
+  anchors, aliases, and block scalars are rejected.
+- `cargo-workspace` supports exact workspace members and one-level `prefix/*`
+  member globs. `Cargo.lock` updates are narrow: only matching workspace
+  package version lines are updated; OMV does not run `cargo update`.
 
 #### `.omv/adapters.toml`
 
@@ -156,6 +187,9 @@ Rules:
   adapter generation
 - `.omv/ai/instructions.md` is the canonical human-readable OMV versioning
   guidance projected into host frameworks
+- canonical guidance mentions `omv plan --json` and
+  `omv sync --check --json` as non-mutating ways to preview target writes and
+  detect drift
 - host files such as `AGENTS.md`, `CLAUDE.md`, or spec guides are derived
   projections of `.omv/ai/*`
 - `.omv/ai/*` is generated and may be safely refreshed by OMV
@@ -210,6 +244,7 @@ Rules:
 | finalizations file malformed | fail finalize before new decision is recorded | `FinalizationError::Parse` |
 | finalize-task required field missing | fail before mutation | `FinalizationError::MissingField` |
 | finalize-task enum-like field invalid | fail before mutation | `FinalizationError::InvalidField` |
+| `omv sync --check` finds required target drift, missing target output, unsupported capability, or planning error | fail without mutation and include plan details in JSON error details | `TargetError::CheckFailed` |
 | host adapter target conflicts with unmanaged file | stop install rather than overwrite | `AdapterError::Conflict` |
 | atomic write fails | leave original file intact | `StorageError::AtomicWriteFailed` |
 
@@ -250,6 +285,13 @@ Rules:
 - Adapters registry round-trip test with installed targets
 - Finalizations round-trip test with pending/bumped/noop entries
 - Canonical `.omv/ai/*` generation test
+- `omv plan --json` test proving target status output is produced without writes
+- `omv sync --check` success and drift-failure tests proving check mode does
+  not mutate targets
+- V2 targets load/save tests for each generalized target kind or a mixed schema
+  representative
+- mixed V1/V2 plan, check, sync, and bump tests proving all target kinds use
+  the shared plan engine
 - Atomic write test proving original file survives a simulated failure
 - Finalize-task duplicate fingerprint test proving the second call does not bump
 - Finalize-task noop test proving non-semantic changes are audited without

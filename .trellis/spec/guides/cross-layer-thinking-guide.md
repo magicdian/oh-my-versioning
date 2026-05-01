@@ -13,6 +13,8 @@ Most `omv` bugs will happen at boundaries:
 - finalize-task event -> `.omv/finalizations.toml`
 - version engine -> `.omv/state.toml`
 - `.omv` truth -> language-native manifests
+- `.omv` target schema V1/V2 -> typed target planner
+- `.omv` truth -> deterministic plan -> check/apply result
 - `.omv` truth -> `.omv/ai/*` canonical contract
 - `.omv/ai/*` -> installed host adapters/spec files
 - locale preference -> CLI/TUI rendering
@@ -43,6 +45,8 @@ For each step, ask:
 | draft state -> persisted `.omv` | accidental partial saves |
 | finalize fingerprint -> `.omv/finalizations.toml` | duplicate bump or unrecoverable pending state |
 | `.omv` -> manifest sync | manifest drift from truth source |
+| `.omv/targets.toml` V2 -> adapter config | stringly dispatch, missing required fields, unsupported parser cases |
+| plan -> sync/check output | command-specific status drift or accidental mutation in check mode |
 | `.omv/ai/*` -> host adapters | stale guidance or unmanaged overwrite |
 | typed result -> JSON envelope | automation breakage |
 | locale preference -> rendered text | hardcoded copy or missing key parity |
@@ -52,6 +56,10 @@ For each step, ask:
 - version engine owns version math
 - storage owns `.omv` file contracts
 - sync adapters own manifest/runtime-export writes
+- V2 target adapters own kind-specific replacement semantics after storage has
+  produced typed target records
+- contract registry owns supported capability IDs and generated contract mappings
+- plan engine owns target status and proposed operations
 - adapter projection owns `.omv/ai/*` and host-framework mirrors
 - i18n catalog owns user-facing copy
 - TUI owns interaction, not persistence truth
@@ -95,6 +103,9 @@ Before implementation:
 - [ ] Defined how localized text is obtained
 - [ ] Defined whether JSON output contracts are affected
 - [ ] Identified whether target sync is part of the command
+- [ ] Identified whether the target is V1 language-based or V2 kind-based
+- [ ] Identified unsupported parser cases for structured V2 targets
+- [ ] Identified whether the command is plan-only, check-only, or write/apply
 - [ ] Checked whether manifest files are outputs rather than truth
 - [ ] Defined whether the flow needs audit/idempotency state in `.omv/finalizations.toml`
 

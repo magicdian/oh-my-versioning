@@ -28,6 +28,11 @@ There must be one version engine.
 
 This breaks cross-language consistency.
 
+### Don't: Add command-specific target drift logic
+
+`omv plan`, `omv sync --check`, `omv sync`, and post-`omv bump` sync must share
+the same deterministic plan engine.
+
 ### Don't: Panic on expected operator failures
 
 Invalid locale, malformed TOML, missing target manifest, and NTP failure are not
@@ -43,6 +48,14 @@ Partial writes can corrupt the source of truth.
 - atomic writes for `.omv` files
 - localized CLI/TUI copy through catalogs
 - adapter-based sync per language family
+- protobuf contract source under `proto/` with generated Rust kept in `OUT_DIR`
+- handwritten capability registry backed by generated contract enums
+- deterministic plan status coverage for `ok`, `drift`, `missing`,
+  `unsupported`, `error`, and `skipped`
+- V2 target adapters for text, regex, Markdown, YAML, C header, and Cargo
+  workspace must return deterministic summaries rather than full file dumps
+- structured formats should use structured parsing where practical; the current
+  limited YAML scalar parser must reject unsupported YAML features explicitly
 - adapter registry plus canonical `.omv/ai/*` generation for agent/spec
   projections
 - parity tests between `en-US` and `zh-CN`
@@ -59,6 +72,9 @@ Partial writes can corrupt the source of truth.
 - locale parity/fallback tests
 - integration tests for `omv init`, `omv current`, `omv bump`, `omv sync`,
   and `omv adapter ...`
+- integration tests for `omv plan --json` and `omv sync --check`
+- integration tests for mixed V1/V2 target planning, check failure without
+  mutation, sync apply, and check success after sync
 
 When a command changes output semantics, add assertion coverage for:
 
@@ -76,4 +92,5 @@ When a command changes output semantics, add assertion coverage for:
 - Are errors typed and localized at the boundary?
 - Are structured JSON keys stable for automation?
 - Does the change preserve the V1 flat target model?
+- Do all target writes flow through the shared plan/apply boundary?
 - Are tests covering both `daily-reset` and `continuous` where relevant?

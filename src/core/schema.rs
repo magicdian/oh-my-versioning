@@ -5,7 +5,10 @@ use super::finalization::{
     ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
 };
 use super::locale::OperatorLocale;
-use super::target::{PreProjectStrategy, ProjectProfile, TargetLanguage};
+use super::target::{
+    CargoLockfileStrategy, CargoMembers, CargoVersionLocation, CargoVersionPolicy,
+    PreProjectStrategy, ProjectProfile, TargetKind, TargetLanguage, TargetMode,
+};
 use super::time::LastTimeSource;
 use super::versioning::{BuildPolicy, VersionOutput};
 
@@ -66,6 +69,7 @@ impl Default for OmvState {
 pub struct OmvTargets {
     pub schema_version: u32,
     pub targets: Vec<OmvTargetRecord>,
+    pub v2_targets: Vec<OmvV2TargetRecord>,
 }
 
 impl Default for OmvTargets {
@@ -73,6 +77,7 @@ impl Default for OmvTargets {
         Self {
             schema_version: 1,
             targets: Vec::new(),
+            v2_targets: Vec::new(),
         }
     }
 }
@@ -100,6 +105,86 @@ impl OmvTargetRecord {
             enabled: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmvV2TargetRecord {
+    pub id: String,
+    pub kind: TargetKind,
+    pub adapter: String,
+    pub root: String,
+    pub enabled: bool,
+    pub mode: TargetMode,
+    pub config: OmvV2TargetConfig,
+}
+
+impl OmvV2TargetRecord {
+    pub fn path(&self) -> Option<&str> {
+        match &self.config {
+            OmvV2TargetConfig::TextScalar(config) => Some(config.path.as_str()),
+            OmvV2TargetConfig::RegexReplace(config) => Some(config.path.as_str()),
+            OmvV2TargetConfig::MarkdownManagedBlock(config) => Some(config.path.as_str()),
+            OmvV2TargetConfig::YamlScalar(config) => Some(config.path.as_str()),
+            OmvV2TargetConfig::CHeaderMacro(config) => Some(config.path.as_str()),
+            OmvV2TargetConfig::CargoWorkspace(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OmvV2TargetConfig {
+    TextScalar(TextScalarTarget),
+    RegexReplace(RegexReplaceTarget),
+    MarkdownManagedBlock(MarkdownManagedBlockTarget),
+    YamlScalar(YamlScalarTarget),
+    CHeaderMacro(CHeaderMacroTarget),
+    CargoWorkspace(CargoWorkspaceTarget),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextScalarTarget {
+    pub path: String,
+    pub selector: String,
+    pub template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegexReplaceTarget {
+    pub path: String,
+    pub pattern: String,
+    pub template: String,
+    pub allow_multiple: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkdownManagedBlockTarget {
+    pub path: String,
+    pub begin_marker: String,
+    pub end_marker: String,
+    pub template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YamlScalarTarget {
+    pub path: String,
+    pub key: String,
+    pub template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CHeaderMacroTarget {
+    pub path: String,
+    pub macro_name: String,
+    pub template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CargoWorkspaceTarget {
+    pub root: String,
+    pub members: CargoMembers,
+    pub version_policy: CargoVersionPolicy,
+    pub version_location: CargoVersionLocation,
+    pub lockfile: CargoLockfileStrategy,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
