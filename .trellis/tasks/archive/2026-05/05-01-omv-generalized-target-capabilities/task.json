@@ -1,0 +1,53 @@
+{
+  "id": "omv-generalized-target-capabilities",
+  "name": "omv-generalized-target-capabilities",
+  "title": "Stage 2: generalized target capabilities",
+  "description": "Add generalized target schema V2 capabilities: text, markdown, YAML, C header macro, Cargo workspace with lockfile strategy, complex-project sample, and AI/spec guidance updates.",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "backend",
+  "package": null,
+  "priority": "P1",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-05-01",
+  "completedAt": "2026-05-01",
+  "branch": "feature/omv-generalized-target-capabilities",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "05-01-omv-versioning-architecture-rethink",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}
