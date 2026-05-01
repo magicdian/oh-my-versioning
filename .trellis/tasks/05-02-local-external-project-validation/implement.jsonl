@@ -1,0 +1,10 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "app runtime injection and sync scenario tests must preserve module boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": ".omv fixture files and targets.toml contracts drive scenarios"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "scenario runner and time injection must return actionable typed errors where applicable"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "tests must cover deterministic bump and external sync behavior"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "time source to version state to target sync crosses app/storage/sync/json"}
+{"file": "src/app/mod.rs", "reason": "existing command orchestration and time source construction"}
+{"file": "tests/integration/target_sync.rs", "reason": "existing temp project integration test style"}
+{"file": "src/core/time/mod.rs", "reason": "existing TimeSource trait and fixed source tests"}

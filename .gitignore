@@ -1,1 +1,8 @@
 /target
+
+# macOS Finder metadata
+.DS_Store
+
+# Local IDE/editor state
+.vscode/
+.idea/

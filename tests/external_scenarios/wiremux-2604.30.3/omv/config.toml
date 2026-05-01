@@ -1,0 +1,6 @@
+locale = "en-US"
+timezone = "UTC+8"
+project_profile = "oss"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false

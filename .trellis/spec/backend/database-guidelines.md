@@ -54,10 +54,9 @@ fn ensure_canonical_artifacts(root: &Path) -> Result<(), OmvError>;
 
 #### `.omv/config.toml`
 
-Required V1 fields:
+User-authored V1 fields:
 
 ```toml
-schema_version = 1
 locale = "en-US" # or "zh-CN"
 timezone = "UTC+0"
 project_profile = "personal" # or "oss"
@@ -68,6 +67,8 @@ ntp_enabled = true
 
 Rules:
 
+- `schema_version` is internal compatibility metadata. User-authored fixtures
+  and examples should omit it unless testing schema migration behavior.
 - `locale` must be normalized to `en-US` or `zh-CN`
 - `timezone` must be stored in canonical form chosen by the implementation
 - transient CLI flags such as `--no-ntp` (skip NTP for current run) must not
@@ -75,10 +76,9 @@ Rules:
 
 #### `.omv/state.toml`
 
-Required V1 fields:
+User-authored V1 fields:
 
 ```toml
-schema_version = 1
 logical_date = "2026-04-13"
 build_number = 1
 last_issued_version = "2604.13.1"
@@ -87,6 +87,8 @@ last_time_source = "ntp" # or system/manual-confirmed
 
 Rules:
 
+- `schema_version` is internal compatibility metadata. User-authored fixtures
+  and examples should omit it unless testing schema migration behavior.
 - `logical_date` plus `build_number` are the mutable version truth
 - `last_issued_version` is derived but stored for human/debug visibility
 - if stored `logical_date` is greater than the validated "today", command flow
@@ -94,11 +96,9 @@ Rules:
 
 #### `.omv/targets.toml`
 
-Required V1 shape:
+User-authored V1 shape:
 
 ```toml
-schema_version = 1
-
 [[targets]]
 id = "workspace-rust"
 language = "rust"
@@ -111,6 +111,9 @@ enabled = true
 
 Rules:
 
+- `schema_version` defaults to the current V1 compatibility behavior when it is
+  absent. It is not a feature flag and should be omitted from user-authored
+  fixtures unless the test explicitly covers schema handling.
 - V1 uses a flat list of targets
 - each target has exactly one `language`
 - `strategy` records how the target should behave when the project did not
@@ -120,11 +123,9 @@ Rules:
   records; `schema_version` is internal compatibility metadata, not a
   user-facing selector
 
-Required kind-based shape:
+User-authored kind-based shape:
 
 ```toml
-schema_version = 1
-
 [[targets]]
 id = "root-version-file"
 kind = "text-scalar"
@@ -217,8 +218,6 @@ pub struct OmvUnsupportedTargetRecord {
 Good:
 
 ```toml
-schema_version = 1
-
 [[targets]]
 id = "root-version-file"
 kind = "text-scalar"

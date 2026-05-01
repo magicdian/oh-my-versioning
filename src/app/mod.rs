@@ -46,6 +46,11 @@ pub struct AppOutput {
     pub message: String,
 }
 
+pub struct AppRuntime<'a> {
+    pub ntp_source: &'a dyn TimeSource,
+    pub system_source: &'a dyn TimeSource,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct InitPersistenceOutcome {
     integrations: InitIntegrationOutcome,
@@ -217,6 +222,16 @@ struct IntegrationTarget {
 }
 
 pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
+    let ntp = NtpTimeSource::default();
+    let system = SystemTimeSource;
+    let runtime = AppRuntime {
+        ntp_source: &ntp,
+        system_source: &system,
+    };
+    run_with_runtime(cli, &runtime)
+}
+
+pub fn run_with_runtime(cli: Cli, runtime: &AppRuntime<'_>) -> Result<AppOutput, OmvError> {
     let cwd = std::env::current_dir()?;
     let omv_root = storage::resolve_omv_root(&cwd)?;
 
@@ -226,13 +241,14 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
 
     match cli.command {
         Command::Init => run_init(&omv_root, &catalog, &locale, cli.output_mode),
-        Command::Bump => run_bump(&omv_root, &catalog, ntp_override, cli.output_mode),
+        Command::Bump => run_bump(&omv_root, &catalog, runtime, ntp_override, cli.output_mode),
         Command::Plan => run_plan(&omv_root, &catalog, cli.output_mode),
         Command::Sync(command) => run_sync(&omv_root, &catalog, cli.output_mode, command.check),
         Command::Current => run_current(&omv_root, &catalog, cli.output_mode),
         Command::Event(event_command) => run_event(
             &omv_root,
             &catalog,
+            runtime,
             ntp_override,
             cli.output_mode,
             event_command,
@@ -410,12 +426,16 @@ fn render_init_result_text(catalog: &Catalog, outcome: &InitPersistenceOutcome) 
 fn run_bump(
     omv_root: &Path,
     catalog: &Catalog,
+    runtime: &AppRuntime<'_>,
     ntp_override: Option<bool>,
     output_mode: OutputMode,
 ) -> Result<AppOutput, OmvError> {
-    let ntp = NtpTimeSource::default();
-    let system = SystemTimeSource;
-    let execution = execute_bump(omv_root, &ntp, &system, ntp_override)?;
+    let execution = execute_bump(
+        omv_root,
+        runtime.ntp_source,
+        runtime.system_source,
+        ntp_override,
+    )?;
 
     let message = match output_mode {
         OutputMode::Text => catalog.tf(
@@ -541,25 +561,33 @@ fn run_current(
 fn run_event(
     omv_root: &Path,
     catalog: &Catalog,
+    runtime: &AppRuntime<'_>,
     ntp_override: Option<bool>,
     output_mode: OutputMode,
     command: EventCommand,
 ) -> Result<AppOutput, OmvError> {
-    let ntp = NtpTimeSource::default();
-    let system = SystemTimeSource;
-
     let message = match command.action {
         EventAction::FinalizeTask(finalize_command) => {
-            let execution =
-                execute_finalize_task(omv_root, &ntp, &system, ntp_override, finalize_command)?;
+            let execution = execute_finalize_task(
+                omv_root,
+                runtime.ntp_source,
+                runtime.system_source,
+                ntp_override,
+                finalize_command,
+            )?;
             match output_mode {
                 OutputMode::Text => render_finalize_task_text(catalog, &execution),
                 OutputMode::Json => render_structured_success("event.finalize-task", &execution),
             }
         }
         EventAction::FinalizeBoundary(finalize_command) => {
-            let execution =
-                execute_finalize_boundary(omv_root, &ntp, &system, ntp_override, finalize_command)?;
+            let execution = execute_finalize_boundary(
+                omv_root,
+                runtime.ntp_source,
+                runtime.system_source,
+                ntp_override,
+                finalize_command,
+            )?;
             match output_mode {
                 OutputMode::Text => render_finalize_boundary_text(catalog, &execution),
                 OutputMode::Json => {
@@ -2492,10 +2520,12 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::process::Command as ProcessCommand;
+    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::cli::{
-        AdapterAction, AdapterCommand, FinalizeBoundaryCommand, FinalizeTaskCommand, OutputMode,
+        AdapterAction, AdapterCommand, Cli, Command, FinalizeBoundaryCommand, FinalizeTaskCommand,
+        OutputMode,
     };
     use crate::core::date::LogicalDate;
     use crate::core::finalization::FinalizationOutcome;
@@ -2509,10 +2539,13 @@ mod tests {
     use crate::ui::state::draft::InitDraft;
 
     use super::{
-        execute_bump, execute_current, execute_finalize_boundary, execute_finalize_task,
-        execute_sync, persist_init_state, render_help, render_structured_error, render_version,
-        resolve_finalize_boundary_task_id, resolve_locale_for_root, run_adapter,
+        AppRuntime, execute_bump, execute_current, execute_finalize_boundary,
+        execute_finalize_task, execute_sync, persist_init_state, render_help,
+        render_structured_error, render_version, resolve_finalize_boundary_task_id,
+        resolve_locale_for_root, run_adapter, run_with_runtime,
     };
+
+    static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     struct FixedSource {
         source: LastTimeSource,
@@ -2741,6 +2774,110 @@ mod tests {
         assert_eq!(execution.time_source, LastTimeSource::System.as_str());
 
         cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn run_with_runtime_uses_injected_ntp_for_same_day_bump() {
+        let root = temp_project_root("runtime-same-day");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-30".to_owned(),
+                build_number: 3,
+                last_issued_version: "2604.30.3".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-30").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-29").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            let output = run_with_runtime(
+                Cli {
+                    command: Command::Bump,
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("bump should use injected NTP date");
+            assert!(output.message.contains("\"version\": \"2604.30.4\""));
+        });
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.logical_date, "2026-04-30");
+        assert_eq!(state.build_number, 4);
+        assert_eq!(state.last_issued_version, "2604.30.4");
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn run_with_runtime_uses_injected_ntp_for_next_day_reset() {
+        let root = temp_project_root("runtime-next-day");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-30".to_owned(),
+                build_number: 3,
+                last_issued_version: "2604.30.3".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-05-01").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-30").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            let output = run_with_runtime(
+                Cli {
+                    command: Command::Bump,
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("bump should use injected next-day NTP date");
+            assert!(output.message.contains("\"version\": \"2605.1.1\""));
+        });
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.logical_date, "2026-05-01");
+        assert_eq!(state.build_number, 1);
+        assert_eq!(state.last_issued_version, "2605.1.1");
+
+        cleanup_project_root(&root);
     }
 
     #[test]
@@ -3118,6 +3255,22 @@ mod tests {
     fn cleanup_omv_root(root: &std::path::Path) {
         if let Some(parent) = root.parent() {
             let _ = fs::remove_dir_all(parent);
+        }
+    }
+
+    fn with_cwd<T>(cwd: &std::path::Path, run: impl FnOnce() -> T) -> T {
+        let lock = CWD_LOCK.get_or_init(|| Mutex::new(()));
+        let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let previous = std::env::current_dir().expect("current dir should resolve");
+        std::env::set_current_dir(cwd).expect("set_current_dir should succeed");
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(run));
+        std::env::set_current_dir(previous).expect("restore current dir should succeed");
+
+        match result {
+            Ok(value) => value,
+            Err(panic) => std::panic::resume_unwind(panic),
         }
     }
 
