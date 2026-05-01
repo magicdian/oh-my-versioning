@@ -4,8 +4,13 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omv::app;
-use omv::cli::{Cli, Command, OutputMode, SyncCommand};
+use omv::cli::{Cli, Command, IntegrateAction, IntegrateCommand, OutputMode, SyncCommand};
 use omv::core::date::LogicalDate;
+use omv::core::integration::{
+    IntegrationCapability, IntegrationCapabilityStatus, IntegrationDetectionSnapshot,
+    IntegrationProvider, OmvIntegrationCapabilityState, OmvIntegrationProviderState,
+    OmvIntegrations,
+};
 use omv::core::locale::OperatorLocale;
 use omv::core::schema::{
     CHeaderMacroTarget, CargoWorkspaceTarget, MarkdownManagedBlockTarget, OmvConfig, OmvState,
@@ -77,6 +82,7 @@ fn sync_command_updates_all_v1_targets_and_skills_guidance() {
                 ),
             ],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         },
     )
     .expect("targets should save");
@@ -179,6 +185,7 @@ fn bump_command_updates_state_and_syncs_registered_targets() {
                 "src/generated/version.rs",
             )],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         },
     )
     .expect("targets should save");
@@ -245,6 +252,7 @@ fn plan_command_reports_v1_target_status_without_mutation() {
                 "src/generated/version.rs",
             )],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         },
     )
     .expect("targets should save");
@@ -295,6 +303,7 @@ fn sync_check_passes_when_targets_are_current_and_fails_on_drift_without_mutatio
                 "src/generated/version.rs",
             )],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         },
     )
     .expect("targets should save");
@@ -365,6 +374,7 @@ fn mixed_v2_targets_plan_check_and_sync_through_shared_engine() {
                 "src/generated/version.rs",
             )],
             v2_targets: v2_targets(),
+            unsupported_targets: Vec::new(),
         },
     )
     .expect("targets should save");
@@ -429,6 +439,391 @@ fn mixed_v2_targets_plan_check_and_sync_through_shared_engine() {
     );
 
     cleanup_project_root(&project_root);
+}
+
+#[test]
+fn kind_targets_are_not_gated_by_user_visible_schema_version() {
+    let project_root = temp_project_root("kind-schema-capability");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+
+    storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+    storage::state::save_state(
+        &omv_root,
+        &OmvState {
+            schema_version: 1,
+            logical_date: "2026-05-01".to_owned(),
+            build_number: 3,
+            last_issued_version: "2605.1.3".to_owned(),
+            last_time_source: LastTimeSource::System,
+        },
+    )
+    .expect("state should save");
+    fs::write(
+        omv_root.join("targets.toml"),
+        r#"schema_version = 1
+
+[[targets]]
+id = "root-version-file"
+kind = "text-scalar"
+path = "VERSION"
+template = "{version}\n"
+
+[[targets]]
+id = "future-workspace"
+kind = "future-workspace"
+path = "future.toml"
+"#,
+    )
+    .expect("targets fixture should write");
+
+    with_cwd(&project_root, || {
+        let plan = app::run(Cli {
+            command: Command::Plan,
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("plan should not reject kind targets because schema_version is 1");
+        assert!(plan.message.contains("\"id\": \"root-version-file\""));
+        assert!(plan.message.contains("\"status\": \"missing\""));
+        assert!(plan.message.contains("\"id\": \"future-workspace\""));
+        assert!(plan.message.contains("\"status\": \"unsupported\""));
+        assert!(plan.message.contains("update OMV"));
+
+        let err = app::run(Cli {
+            command: Command::Sync(SyncCommand { check: true }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("sync check should fail on required unsupported target");
+        assert_eq!(err.code(), "sync_check_failed");
+
+        let err = app::run(Cli {
+            command: Command::Sync(SyncCommand::default()),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("sync should not apply while a required unsupported target exists");
+        assert_eq!(err.code(), "invalid_target_record");
+    });
+
+    assert!(!project_root.join("VERSION").exists());
+    assert!(!project_root.join("future.toml").exists());
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_status_json_reports_matrix_without_integrations_file() {
+    let project_root = temp_project_root("integrate-status-empty");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Status,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("integrate status should succeed without integrations file");
+
+        assert!(output.message.contains("\"command\": \"integrate.status\""));
+        assert!(output.message.contains("\"provider\": \"codex\""));
+        assert!(
+            output
+                .message
+                .contains("\"capability\": \"project-instructions\"")
+        );
+        assert!(output.message.contains("\"provider\": \"trellis\""));
+    });
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_bootstraps_codex_and_reports_json_envelope() {
+    let project_root = temp_project_root("integrate-apply-codex");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("codex integrate apply should succeed");
+
+        assert!(output.message.contains("\"command\": \"integrate.apply\""));
+        assert!(output.message.contains("\"ok\": true"));
+        assert!(output.message.contains("\"succeeded\": 2"));
+    });
+
+    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Codex Adapter");
+    assert_file_contains(
+        &project_root.join(".codex/skills/omv-versioning/SKILL.md"),
+        "omv-versioning",
+    );
+    assert_file_contains(
+        &omv_root.join("integrations.toml"),
+        "status = \"installed\"",
+    );
+    assert_file_contains(&omv_root.join("adapters.toml"), "name = \"codex\"");
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_preserves_successful_capability_when_later_capability_fails() {
+    let project_root = temp_project_root("integrate-apply-partial");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".codex/skills/omv-versioning"))
+        .expect("codex skill dir should be created");
+    fs::write(
+        project_root.join(".codex/skills/omv-versioning/SKILL.md"),
+        "unmanaged skill\n",
+    )
+    .expect("unmanaged skill should write");
+
+    with_cwd(&project_root, || {
+        let err = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("partial apply should return non-zero error path");
+
+        assert_eq!(err.code(), "integration_apply_failed");
+        let structured = app::render_structured_error("integrate.apply", &err);
+        assert!(structured.contains("\"capability\": \"project-instructions\""));
+        assert!(structured.contains("\"status\": \"installed\""));
+        assert!(structured.contains("\"capability\": \"host-skill\""));
+        assert!(structured.contains("\"status\": \"failed\""));
+    });
+
+    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Codex Adapter");
+    assert_file_contains(
+        &project_root.join(".codex/skills/omv-versioning/SKILL.md"),
+        "unmanaged skill",
+    );
+    assert_file_contains(
+        &omv_root.join("integrations.toml"),
+        "status = \"installed\"",
+    );
+    assert_file_contains(&omv_root.join("integrations.toml"), "status = \"failed\"");
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_rejects_selected_trellis_when_not_detected() {
+    let project_root = temp_project_root("integrate-apply-trellis-missing");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[
+                        (
+                            IntegrationCapability::ProjectInstructions,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::HostSkill,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                    ],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    false,
+                    &[(
+                        IntegrationCapability::SpecGuide,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let err = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("trellis apply without .trellis should fail");
+
+        assert_eq!(err.code(), "integration_apply_failed");
+        let structured = app::render_structured_error("integrate.apply", &err);
+        assert!(structured.contains("provider-not-detected"));
+        assert!(structured.contains("\"provider\": \"trellis\""));
+    });
+
+    assert!(
+        !project_root
+            .join(".trellis/spec/guides/omv-versioning-guide.md")
+            .exists()
+    );
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_installs_trellis_finalize_boundary_managed_block() {
+    let project_root = temp_project_root("integrate-apply-finalize-boundary");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/finish-work"))
+        .expect("finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/finish-work/SKILL.md"),
+        "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("finish-work surface should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[
+                        (
+                            IntegrationCapability::ProjectInstructions,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::HostSkill,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                    ],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::FinalizeBoundary,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("trellis finalize-boundary apply should succeed");
+
+        assert!(output.message.contains("\"command\": \"integrate.apply\""));
+        assert!(
+            output
+                .message
+                .contains("\"capability\": \"finalize-boundary\"")
+        );
+        assert!(output.message.contains("\"status\": \"installed\""));
+    });
+
+    let finish_work = fs::read_to_string(project_root.join(".agents/skills/finish-work/SKILL.md"))
+        .expect("finish-work surface should exist");
+    assert!(finish_work.contains("OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work"));
+    assert!(finish_work.contains("omv event finalize-boundary --provider trellis"));
+    let block = finish_work
+        .find("OMV Finalize Boundary")
+        .expect("finalize block should exist");
+    let quick = finish_work
+        .find("## Quick Check Flow")
+        .expect("quick check should exist");
+    assert!(block < quick);
+
+    let loaded = storage::integrations::load_integrations(&omv_root)
+        .expect("integrations should round-trip through storage");
+    let trellis = loaded
+        .providers
+        .iter()
+        .find(|provider| provider.provider == IntegrationProvider::Trellis)
+        .expect("trellis provider should persist");
+    let finalize = trellis
+        .capabilities
+        .iter()
+        .find(|capability| capability.capability == IntegrationCapability::FinalizeBoundary)
+        .expect("finalize-boundary should persist");
+    assert_eq!(finalize.status, IntegrationCapabilityStatus::Installed);
+
+    cleanup_project_root(&project_root);
+}
+
+fn integration_provider(
+    provider: IntegrationProvider,
+    selected: bool,
+    detected: bool,
+    capabilities: &[(IntegrationCapability, bool, IntegrationCapabilityStatus)],
+) -> OmvIntegrationProviderState {
+    OmvIntegrationProviderState {
+        provider,
+        selected,
+        detection: IntegrationDetectionSnapshot {
+            detected,
+            recommended: detected,
+        },
+        capabilities: capabilities
+            .iter()
+            .map(
+                |(capability, selected, status)| OmvIntegrationCapabilityState {
+                    capability: *capability,
+                    selected: *selected,
+                    status: *status,
+                    failure: None,
+                },
+            )
+            .collect(),
+    }
 }
 
 fn target(

@@ -1,3 +1,4 @@
+use crate::core::integration::{IntegrationCapability, IntegrationProvider};
 use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
 use crate::core::versioning::BuildPolicy;
@@ -15,16 +16,24 @@ use crate::ui::widget::row::RowTemplate;
 pub enum UiMode {
     InitRoot,
     LanguageSupport,
+    HostIntegrations,
     Review,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InitRootAction {
     LanguageSupport,
+    HostIntegrations,
     Locale,
     Timezone,
     BuildPolicy,
-    Initialize,
+    Review,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrationCursor {
+    Provider(IntegrationProvider),
+    Capability(IntegrationProvider, IntegrationCapability),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,23 +62,24 @@ impl Default for UiApp {
 impl UiApp {
     pub fn from_discovery(discovery: &DiscoveryResult) -> Self {
         Self {
-            draft: InitDraft::from_detected_languages(&discovery.detected),
+            draft: InitDraft::from_discovery(&discovery.detected, &discovery.integrations),
             ..Self::default()
         }
     }
 
     pub fn visible_rows_len(&self) -> usize {
         match self.mode {
-            UiMode::InitRoot => 5,
+            UiMode::InitRoot => 6,
             UiMode::LanguageSupport => self.draft.targets.len() + 1,
-            UiMode::Review => 1,
+            UiMode::HostIntegrations => self.integration_cursor_order().len(),
+            UiMode::Review => self.review_rows_len(),
         }
     }
 
     pub fn row_template_at_cursor(&self) -> RowTemplate {
         match self.mode {
             UiMode::InitRoot => match self.menu_index {
-                1..=3 => RowTemplate::FieldEntry,
+                2..=4 => RowTemplate::FieldEntry,
                 _ => RowTemplate::Action,
             },
             UiMode::LanguageSupport => {
@@ -79,7 +89,14 @@ impl UiApp {
                     RowTemplate::Action
                 }
             }
-            UiMode::Review => RowTemplate::Action,
+            UiMode::HostIntegrations => RowTemplate::Toggle,
+            UiMode::Review => {
+                if self.menu_index + 1 == self.review_rows_len() {
+                    RowTemplate::Action
+                } else {
+                    RowTemplate::Info
+                }
+            }
         }
     }
 
@@ -94,6 +111,16 @@ impl UiApp {
             .map(|target| target.language)
     }
 
+    pub fn integration_cursor_at_cursor(&self) -> Option<IntegrationCursor> {
+        if self.mode != UiMode::HostIntegrations {
+            return None;
+        }
+
+        self.integration_cursor_order()
+            .get(self.menu_index)
+            .copied()
+    }
+
     pub fn current_init_root_action(&self) -> Option<InitRootAction> {
         if self.mode != UiMode::InitRoot {
             return None;
@@ -101,10 +128,11 @@ impl UiApp {
 
         match self.menu_index {
             0 => Some(InitRootAction::LanguageSupport),
-            1 => Some(InitRootAction::Locale),
-            2 => Some(InitRootAction::Timezone),
-            3 => Some(InitRootAction::BuildPolicy),
-            4 => Some(InitRootAction::Initialize),
+            1 => Some(InitRootAction::HostIntegrations),
+            2 => Some(InitRootAction::Locale),
+            3 => Some(InitRootAction::Timezone),
+            4 => Some(InitRootAction::BuildPolicy),
+            5 => Some(InitRootAction::Review),
             _ => None,
         }
     }
@@ -113,6 +141,18 @@ impl UiApp {
         self.mode = UiMode::LanguageSupport;
         self.focus = FocusTarget::Menu;
         self.menu_index = 0;
+    }
+
+    pub fn enter_host_integrations(&mut self) {
+        self.mode = UiMode::HostIntegrations;
+        self.focus = FocusTarget::Menu;
+        self.menu_index = 0;
+    }
+
+    pub fn enter_review(&mut self) {
+        self.mode = UiMode::Review;
+        self.focus = FocusTarget::Menu;
+        self.menu_index = self.review_rows_len().saturating_sub(1);
     }
 
     pub fn popup_open(&self) -> bool {
@@ -200,6 +240,7 @@ impl UiApp {
         input: KeyInput,
         row_template: RowTemplate,
         selected_language: Option<TargetLanguage>,
+        selected_integration: Option<IntegrationCursor>,
     ) -> UiAction {
         let popup_open = self.popup.is_some();
         let action = map_key_to_action(input, row_template, popup_open);
@@ -214,6 +255,17 @@ impl UiApp {
                 }
                 if let Some(language) = selected_language {
                     self.draft.toggle_language(language);
+                }
+                if let Some(integration) = selected_integration {
+                    match integration {
+                        IntegrationCursor::Provider(provider) => {
+                            self.draft.toggle_integration_provider(provider);
+                        }
+                        IntegrationCursor::Capability(provider, capability) => {
+                            self.draft
+                                .toggle_integration_capability(provider, capability);
+                        }
+                    }
                 }
             }
             UiAction::Confirm => {
@@ -313,14 +365,33 @@ impl UiApp {
 
         self.exit_requested = true;
     }
+
+    fn integration_cursor_order(&self) -> Vec<IntegrationCursor> {
+        self.draft
+            .integrations
+            .iter()
+            .flat_map(|provider| {
+                std::iter::once(IntegrationCursor::Provider(provider.provider)).chain(
+                    provider.capabilities.iter().map(|capability| {
+                        IntegrationCursor::Capability(provider.provider, capability.capability)
+                    }),
+                )
+            })
+            .collect()
+    }
+
+    fn review_rows_len(&self) -> usize {
+        self.draft.selected_integrations().len().max(1) + 3
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::core::integration::{IntegrationCapability, IntegrationProvider};
     use crate::core::locale::OperatorLocale;
     use crate::core::target::{PreProjectStrategy, TargetLanguage};
     use crate::core::versioning::BuildPolicy;
-    use crate::ui::app::{UiApp, UiMode};
+    use crate::ui::app::{IntegrationCursor, UiApp, UiMode};
     use crate::ui::discovery::DiscoveryResult;
     use crate::ui::event::KeyInput;
     use crate::ui::state::focus::FocusTarget;
@@ -339,6 +410,7 @@ mod tests {
         let discovery = DiscoveryResult {
             detected: vec![TargetLanguage::Rust, TargetLanguage::Python],
             has_any_manifest: true,
+            integrations: Vec::new(),
         };
         let app = UiApp::from_discovery(&discovery);
 
@@ -367,6 +439,7 @@ mod tests {
             KeyInput::Space,
             RowTemplate::Toggle,
             Some(TargetLanguage::Go),
+            None,
         );
         assert_eq!(action, crate::ui::event::UiAction::Toggle);
         assert!(app.draft.enabled_languages().contains(&TargetLanguage::Go));
@@ -380,7 +453,7 @@ mod tests {
         };
         app.menu_index = app.draft.targets.len();
 
-        let action = app.handle_key(KeyInput::Enter, RowTemplate::Action, None);
+        let action = app.handle_key(KeyInput::Enter, RowTemplate::Action, None, None);
         assert_eq!(action, crate::ui::event::UiAction::Confirm);
         assert!(app.popup.is_some());
         assert_eq!(app.focus, FocusTarget::Popup);
@@ -401,7 +474,7 @@ mod tests {
             app.popup = Some(popup);
         }
 
-        app.handle_key(KeyInput::Enter, RowTemplate::Action, None);
+        app.handle_key(KeyInput::Enter, RowTemplate::Action, None, None);
 
         assert_eq!(
             app.draft.pre_project_strategy,
@@ -421,7 +494,7 @@ mod tests {
             app.popup = Some(popup);
         }
 
-        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None, None);
         assert_eq!(app.draft.timezone_string(), "UTC+8");
         assert!(app.popup.is_none());
     }
@@ -436,7 +509,7 @@ mod tests {
             app.popup = Some(popup);
         }
 
-        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None, None);
         assert_eq!(app.draft.build_policy, BuildPolicy::Continuous);
         assert!(app.popup.is_none());
     }
@@ -451,7 +524,7 @@ mod tests {
             app.popup = Some(popup);
         }
 
-        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None);
+        app.handle_key(KeyInput::Enter, RowTemplate::FieldEntry, None, None);
         assert_eq!(app.draft.locale, OperatorLocale::ZhCn);
         assert!(app.popup.is_none());
     }
@@ -464,16 +537,16 @@ mod tests {
         };
         app.open_pre_project_strategy_popup();
 
-        app.handle_key(KeyInput::Esc, RowTemplate::Action, None);
+        app.handle_key(KeyInput::Esc, RowTemplate::Action, None, None);
         assert!(app.popup.is_none());
         assert_eq!(app.mode, UiMode::LanguageSupport);
         assert!(!app.exit_requested);
 
-        app.handle_key(KeyInput::Esc, RowTemplate::Action, None);
+        app.handle_key(KeyInput::Esc, RowTemplate::Action, None, None);
         assert_eq!(app.mode, UiMode::InitRoot);
         assert!(!app.exit_requested);
 
-        app.handle_key(KeyInput::Esc, RowTemplate::Action, None);
+        app.handle_key(KeyInput::Esc, RowTemplate::Action, None, None);
         assert!(app.exit_requested);
     }
 
@@ -490,5 +563,30 @@ mod tests {
         app.move_up();
         let popup = app.popup.expect("popup should stay open");
         assert_eq!(popup.selected_index, 2);
+    }
+
+    #[test]
+    fn space_toggles_selected_integration_capability() {
+        let mut app = UiApp {
+            mode: UiMode::HostIntegrations,
+            ..UiApp::default()
+        };
+
+        let action = app.handle_key(
+            KeyInput::Space,
+            RowTemplate::Toggle,
+            None,
+            Some(IntegrationCursor::Capability(
+                IntegrationProvider::Codex,
+                IntegrationCapability::HostSkill,
+            )),
+        );
+
+        assert_eq!(action, crate::ui::event::UiAction::Toggle);
+        assert!(
+            app.draft
+                .selected_integrations()
+                .contains(&(IntegrationProvider::Codex, IntegrationCapability::HostSkill))
+        );
     }
 }

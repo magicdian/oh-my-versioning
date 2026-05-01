@@ -16,6 +16,14 @@ The project has three state categories and they must not be mixed.
 | Command runtime state | app/backend orchestration | detected manifests, validated current date, sync results |
 | TUI draft state | `src/ui/state/` | toggled languages, locale/timezone/build-policy selection, popup selection, unsaved edits |
 
+Integration state follows the same separation:
+
+| Category | Owner | Examples |
+| --- | --- | --- |
+| Persistent integration state | `.omv/integrations.toml` via backend storage | selected providers, selected capabilities, last detection snapshot, capability status/failure |
+| Runtime integration plan | app/backend orchestration | fresh provider detection, affected files, targeted worktree-safety result |
+| TUI integration draft | `src/ui/state/` | temporary provider/capability toggles before init confirmation |
+
 ## When to Use Global State
 
 Use shared app-level state only for:
@@ -27,6 +35,12 @@ Use shared app-level state only for:
 
 Do not promote per-widget rendering details to app-global state unless multiple
 screens actually share them.
+
+Integration review draft state should store typed provider/capability
+selections separately from language target selections. Persist only after the
+user confirms init. If targeted integration files are unsafe, init should still
+save `.omv/integrations.toml` and tell the user to run `omv integrate apply`
+later instead of mutating files from UI state.
 
 ## Server State
 
@@ -44,3 +58,9 @@ save.
 ### Don't: Recompute discovery/network work during render
 
 Compute once through a command path, then store the result in runtime state.
+
+### Don't: Apply integrations from key handlers
+
+Integration apply belongs to backend/app orchestration after confirmation and
+targeted safety checks. The TUI only edits draft selections and displays the
+review result.

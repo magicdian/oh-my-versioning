@@ -12,6 +12,7 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 
+use crate::core::integration::{IntegrationCapability, IntegrationProvider};
 use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
 use crate::core::versioning::BuildPolicy;
@@ -21,7 +22,7 @@ use crate::ui::app::{InitRootAction, UiApp, UiMode};
 use crate::ui::discovery::DiscoveryResult;
 use crate::ui::event::{KeyInput, UiAction};
 use crate::ui::screen::popup::{PopupKind, build_policy_choices, locale_choices, strategy_choices};
-use crate::ui::state::draft::InitDraft;
+use crate::ui::state::draft::{InitDraft, integration_capability_target_files};
 
 pub fn run_init_tui(
     catalog: &Catalog,
@@ -87,17 +88,27 @@ fn run_loop(
 
         let row_template = app.row_template_at_cursor();
         let selected_language = app.selected_language_at_cursor();
-        let action = app.handle_key(input, row_template, selected_language);
+        let selected_integration = app.integration_cursor_at_cursor();
+        let action = app.handle_key(input, row_template, selected_language, selected_integration);
 
         if action == UiAction::Confirm && !app.popup_open() && app.mode == UiMode::InitRoot {
             match app.current_init_root_action() {
                 Some(InitRootAction::LanguageSupport) => app.enter_language_support(),
+                Some(InitRootAction::HostIntegrations) => app.enter_host_integrations(),
                 Some(InitRootAction::Locale) => app.open_locale_popup(),
                 Some(InitRootAction::Timezone) => app.open_timezone_popup(),
                 Some(InitRootAction::BuildPolicy) => app.open_build_policy_popup(),
-                Some(InitRootAction::Initialize) => return Ok(app.draft),
+                Some(InitRootAction::Review) => app.enter_review(),
                 None => {}
             }
+        }
+
+        if action == UiAction::Confirm
+            && !app.popup_open()
+            && app.mode == UiMode::Review
+            && matches!(row_template, crate::ui::widget::row::RowTemplate::Action)
+        {
+            return Ok(app.draft);
         }
     }
 }
@@ -183,6 +194,7 @@ fn screen_title(mode: UiMode, catalog: &Catalog) -> String {
     match mode {
         UiMode::InitRoot => catalog.t("init.root.title"),
         UiMode::LanguageSupport => catalog.t("init.language.title"),
+        UiMode::HostIntegrations => catalog.t("init.integration.title"),
         UiMode::Review => catalog.t("init.review.title"),
     }
 }
@@ -208,9 +220,15 @@ fn menu_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
                 "init.root.language_support_with_count",
                 &["enabled", enabled.as_str(), "total", total.as_str()],
             );
+            let selected_integrations = app.draft.selected_integrations().len().to_string();
+            let integration_support = catalog.tf(
+                "init.root.integration_support_with_count",
+                &["selected", selected_integrations.as_str()],
+            );
 
             vec![
                 format!("{language_support} --->"),
+                format!("{integration_support} --->"),
                 format!(
                     "{} ({}) --->",
                     catalog.t("init.root.locale"),
@@ -226,7 +244,7 @@ fn menu_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
                     catalog.t("init.root.build_policy"),
                     build_policy_label(app.draft.build_policy, catalog)
                 ),
-                format!("{} --->", catalog.t("init.root.initialize")),
+                format!("{} --->", catalog.t("init.root.review")),
             ]
         }
         UiMode::LanguageSupport => {
@@ -243,8 +261,86 @@ fn menu_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
             rows.push(format!("{} --->", catalog.t("init.language.strategy")));
             rows
         }
-        UiMode::Review => vec![format!("{} --->", catalog.t("init.root.initialize"))],
+        UiMode::HostIntegrations => integration_rows(app, catalog),
+        UiMode::Review => review_rows(app, catalog),
     }
+}
+
+fn integration_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
+    let mut rows = Vec::new();
+    for provider in &app.draft.integrations {
+        let selected = provider
+            .capabilities
+            .iter()
+            .any(|capability| capability.selected);
+        let marker = if selected { "[*]" } else { "[ ]" };
+        rows.push(catalog.tf(
+            "init.integration.provider_row",
+            &[
+                "marker",
+                marker,
+                "provider",
+                provider_label(provider.provider, catalog).as_str(),
+                "state",
+                provider_state_label(provider.detected, provider.recommended, catalog).as_str(),
+            ],
+        ));
+
+        for capability in &provider.capabilities {
+            let marker = if capability.selected { "[*]" } else { "[ ]" };
+            rows.push(catalog.tf(
+                "init.integration.capability_row",
+                &[
+                    "marker",
+                    marker,
+                    "capability",
+                    capability_label(capability.capability, catalog).as_str(),
+                    "state",
+                    capability_state_label(capability.recommended, catalog).as_str(),
+                ],
+            ));
+        }
+    }
+    rows
+}
+
+fn review_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
+    let mut rows = vec![
+        catalog.tf(
+            "init.review.languages",
+            &[
+                "count",
+                app.draft.enabled_languages().len().to_string().as_str(),
+            ],
+        ),
+        catalog.t("init.review.integrations_header"),
+    ];
+
+    let selected = app.draft.selected_integrations();
+    if selected.is_empty() {
+        rows.push(catalog.t("init.review.integrations_none"));
+    } else {
+        for (provider, capability) in selected {
+            rows.push(
+                catalog.tf(
+                    "init.review.integration_item",
+                    &[
+                        "provider",
+                        provider_label(provider, catalog).as_str(),
+                        "capability",
+                        capability_label(capability, catalog).as_str(),
+                        "targets",
+                        integration_capability_target_files(capability)
+                            .join(", ")
+                            .as_str(),
+                    ],
+                ),
+            );
+        }
+    }
+
+    rows.push(format!("{} --->", catalog.t("init.root.initialize")));
+    rows
 }
 
 fn language_label(language: TargetLanguage, catalog: &Catalog) -> String {
@@ -267,6 +363,41 @@ fn strategy_label(strategy: PreProjectStrategy, catalog: &Catalog) -> String {
     };
 
     catalog.t(key)
+}
+
+fn provider_label(provider: IntegrationProvider, catalog: &Catalog) -> String {
+    let key = match provider {
+        IntegrationProvider::Codex => "integration.provider.codex",
+        IntegrationProvider::Trellis => "integration.provider.trellis",
+    };
+    catalog.t(key)
+}
+
+fn capability_label(capability: IntegrationCapability, catalog: &Catalog) -> String {
+    let key = match capability {
+        IntegrationCapability::ProjectInstructions => "integration.capability.project_instructions",
+        IntegrationCapability::HostSkill => "integration.capability.host_skill",
+        IntegrationCapability::SpecGuide => "integration.capability.spec_guide",
+        IntegrationCapability::SpecIndexSnippet => "integration.capability.spec_index_snippet",
+        IntegrationCapability::FinalizeBoundary => "integration.capability.finalize_boundary",
+    };
+    catalog.t(key)
+}
+
+fn provider_state_label(detected: bool, recommended: bool, catalog: &Catalog) -> String {
+    match (detected, recommended) {
+        (true, true) => catalog.t("init.integration.state.detected_recommended"),
+        (true, false) => catalog.t("init.integration.state.detected"),
+        (false, _) => catalog.t("init.integration.state.not_detected"),
+    }
+}
+
+fn capability_state_label(recommended: bool, catalog: &Catalog) -> String {
+    if recommended {
+        catalog.t("init.integration.state.recommended")
+    } else {
+        catalog.t("init.integration.state.optional")
+    }
 }
 
 fn popup_title(kind: PopupKind, catalog: &Catalog) -> String {
@@ -372,6 +503,7 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    use crate::core::integration::IntegrationProvider;
     use crate::core::locale::OperatorLocale;
     use crate::core::target::TargetLanguage;
     use crate::ui::app::{UiApp, UiMode};
@@ -387,6 +519,7 @@ mod tests {
         let discovery = DiscoveryResult {
             detected: vec![TargetLanguage::Rust, TargetLanguage::Python],
             has_any_manifest: true,
+            integrations: Vec::new(),
         };
         let app = UiApp::from_discovery(&discovery);
 
@@ -397,9 +530,10 @@ mod tests {
             &["enabled", "2", "total", total.as_str()],
         );
         assert_eq!(rows[0], format!("{expected_label} --->"));
-        assert!(rows[1].contains("Language"));
-        assert!(rows[2].contains("Timezone"));
-        assert!(rows[3].contains("Build Policy"));
+        assert!(rows[1].contains("Host Integrations"));
+        assert!(rows[2].contains("Language"));
+        assert!(rows[3].contains("Timezone"));
+        assert!(rows[4].contains("Build Policy"));
     }
 
     #[test]
@@ -435,5 +569,48 @@ mod tests {
         assert!(start <= 20);
         assert!(end > 20);
         assert_eq!(end - start, 8);
+    }
+
+    #[test]
+    fn integration_rows_show_provider_detection_and_capabilities() {
+        let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
+        let discovery = DiscoveryResult {
+            detected: vec![],
+            has_any_manifest: false,
+            integrations: vec![crate::ui::discovery::IntegrationProviderDiscovery {
+                provider: IntegrationProvider::Trellis,
+                detected: true,
+            }],
+        };
+        let app = UiApp {
+            mode: UiMode::HostIntegrations,
+            ..UiApp::from_discovery(&discovery)
+        };
+
+        let rows = menu_rows(&app, &catalog);
+        assert!(rows.iter().any(|row| row.contains("Trellis")));
+        assert!(rows.iter().any(|row| row.contains("finalize-boundary")));
+        assert!(rows.iter().any(|row| row.contains("detected")));
+    }
+
+    #[test]
+    fn review_rows_include_selected_targets() {
+        let catalog = crate::i18n::load_catalog("en-US").expect("catalog should load");
+        let discovery = DiscoveryResult {
+            detected: vec![],
+            has_any_manifest: false,
+            integrations: vec![crate::ui::discovery::IntegrationProviderDiscovery {
+                provider: IntegrationProvider::Codex,
+                detected: true,
+            }],
+        };
+        let app = UiApp {
+            mode: UiMode::Review,
+            ..UiApp::from_discovery(&discovery)
+        };
+
+        let rows = menu_rows(&app, &catalog);
+        assert!(rows.iter().any(|row| row.contains("AGENTS.md")));
+        assert!(rows.iter().any(|row| row.contains(".codex/skills")));
     }
 }

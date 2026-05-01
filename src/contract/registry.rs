@@ -2,7 +2,10 @@ use serde::Serialize;
 
 use crate::adapter;
 use crate::contract::generated::omv::contract::v1::{
-    OmvCapabilitySet, OmvCommandSupport, OmvTargetSupport,
+    OmvCapabilitySet, OmvCommandSupport, OmvIntegrationSupport, OmvTargetSupport,
+};
+use crate::core::integration::{
+    IntegrationCapability, IntegrationProviderDescriptor, mvp_provider_descriptors,
 };
 use crate::core::target::{TargetKind, TargetLanguage};
 
@@ -14,6 +17,8 @@ pub struct CapabilityRegistry {
     pub contract_version: u32,
     pub target_support: Vec<TargetCapability>,
     pub command_support: Vec<CommandCapability>,
+    pub integration_support: Vec<IntegrationCapability>,
+    pub integration_providers: Vec<IntegrationProviderDescriptor>,
     pub json_contract_support: Vec<String>,
     pub ai_adapter_contract_version: u32,
 }
@@ -44,6 +49,14 @@ impl Default for CapabilityRegistry {
                 CommandCapability::EventFinalizeTask,
                 CommandCapability::Plan,
             ],
+            integration_support: vec![
+                IntegrationCapability::ProjectInstructions,
+                IntegrationCapability::HostSkill,
+                IntegrationCapability::SpecGuide,
+                IntegrationCapability::SpecIndexSnippet,
+                IntegrationCapability::FinalizeBoundary,
+            ],
+            integration_providers: mvp_provider_descriptors(),
             json_contract_support: vec![STRUCTURED_JSON_CONTRACT_VERSION.to_owned()],
             ai_adapter_contract_version: adapter::CONTRACT_VERSION,
         }
@@ -66,6 +79,11 @@ impl CapabilityRegistry {
                 .collect(),
             json_contract_support: self.json_contract_support.clone(),
             ai_adapter_contract_version: self.ai_adapter_contract_version,
+            integration_support: self
+                .integration_support
+                .iter()
+                .map(|capability| integration_capability_proto(*capability) as i32)
+                .collect(),
         }
     }
 
@@ -80,6 +98,10 @@ impl CapabilityRegistry {
     pub fn supports_kind(&self, kind: TargetKind) -> bool {
         self.target_support
             .contains(&TargetCapability::from_kind(kind))
+    }
+
+    pub fn supports_integration_capability(&self, capability: IntegrationCapability) -> bool {
+        self.integration_support.contains(&capability)
     }
 }
 
@@ -165,6 +187,16 @@ impl CommandCapability {
     }
 }
 
+fn integration_capability_proto(capability: IntegrationCapability) -> OmvIntegrationSupport {
+    match capability {
+        IntegrationCapability::ProjectInstructions => OmvIntegrationSupport::ProjectInstructions,
+        IntegrationCapability::HostSkill => OmvIntegrationSupport::HostSkill,
+        IntegrationCapability::SpecGuide => OmvIntegrationSupport::SpecGuide,
+        IntegrationCapability::SpecIndexSnippet => OmvIntegrationSupport::SpecIndexSnippet,
+        IntegrationCapability::FinalizeBoundary => OmvIntegrationSupport::FinalizeBoundary,
+    }
+}
+
 pub fn stage1_registry() -> CapabilityRegistry {
     CapabilityRegistry::default()
 }
@@ -172,6 +204,7 @@ pub fn stage1_registry() -> CapabilityRegistry {
 #[cfg(test)]
 mod tests {
     use crate::contract::registry::{CommandCapability, TargetCapability, stage1_registry};
+    use crate::core::integration::{IntegrationCapability, IntegrationProvider};
     use crate::core::target::TargetLanguage;
 
     #[test]
@@ -185,9 +218,39 @@ mod tests {
         assert!(registry.supports_kind(crate::core::target::TargetKind::TextScalar));
         assert!(registry.target_support.contains(&TargetCapability::CCMake));
         assert!(registry.command_support.contains(&CommandCapability::Plan));
+        assert!(registry.supports_integration_capability(IntegrationCapability::FinalizeBoundary));
         assert_eq!(
             generated.target_support.len(),
             registry.target_support.len()
         );
+        assert_eq!(
+            generated.integration_support.len(),
+            registry.integration_support.len()
+        );
+    }
+
+    #[test]
+    fn registry_exposes_mvp_integration_provider_descriptors() {
+        let registry = stage1_registry();
+        let codex = registry
+            .integration_providers
+            .iter()
+            .find(|provider| provider.provider == IntegrationProvider::Codex)
+            .expect("codex provider should be registered");
+        let trellis = registry
+            .integration_providers
+            .iter()
+            .find(|provider| provider.provider == IntegrationProvider::Trellis)
+            .expect("trellis provider should be registered");
+
+        assert!(
+            codex
+                .capabilities
+                .iter()
+                .any(|capability| capability.capability == IntegrationCapability::HostSkill)
+        );
+        assert!(trellis.capabilities.iter().any(|capability| {
+            capability.capability == IntegrationCapability::FinalizeBoundary
+        }));
     }
 }

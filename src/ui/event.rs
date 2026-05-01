@@ -46,7 +46,7 @@ pub fn map_key_to_action(input: KeyInput, row_template: RowTemplate, popup_open:
                 UiAction::Confirm
             } else {
                 match row_template {
-                    RowTemplate::Toggle => UiAction::Noop,
+                    RowTemplate::Info | RowTemplate::Toggle => UiAction::Noop,
                     RowTemplate::FieldEntry | RowTemplate::Action => UiAction::Confirm,
                 }
             }
@@ -70,6 +70,10 @@ mod tests {
             map_key_to_action(KeyInput::Space, RowTemplate::Action, false),
             UiAction::Noop
         );
+        assert_eq!(
+            map_key_to_action(KeyInput::Space, RowTemplate::Info, false),
+            UiAction::Noop
+        );
     }
 
     #[test]
@@ -84,6 +88,10 @@ mod tests {
         );
         assert_eq!(
             map_key_to_action(KeyInput::Enter, RowTemplate::Toggle, false),
+            UiAction::Noop
+        );
+        assert_eq!(
+            map_key_to_action(KeyInput::Enter, RowTemplate::Info, false),
             UiAction::Noop
         );
     }

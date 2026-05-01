@@ -14,14 +14,20 @@ to replace large-company release platforms with bespoke governance.
 - Move target synchronization behind typed adapters and a shared planning
   engine.
 - Introduce a protobuf-backed capability contract with generated Rust code.
+- Model host integrations as provider/capability state with deterministic
+  status and apply behavior.
+- Keep `.omv/ai/*` canonical for generated guidance while treating installed
+  host files as replaceable projections.
 - Preserve current `.omv/targets.toml` V1 compatibility during the first
   refactor stage.
 - Save extension seams for future SDK/plugin and release-trigger integrations
-  without implementing those runtimes in the first two stages.
+  without implementing those runtimes in the first two stages or the host
+  integration MVP.
 
 ## Non-Goals
 
-- Do not build a public plugin runtime in the first two stages.
+- Do not build a public plugin runtime in the first two stages or the host
+  integration MVP. MVP providers are internal registry entries.
 - Do not implement GitHub CI, release triggers, or CI workflow files in the
   first two stages.
 - Do not force existing projects to migrate target files during Stage 1.
@@ -32,13 +38,14 @@ to replace large-company release platforms with bespoke governance.
 
 The trigger does not decide what OMV changes. A trigger only requests an
 operation. The persisted OMV project contract determines the version, target
-set, adapter behavior, compatibility status, and write plan.
+set, integration capability state, adapter behavior, compatibility status, and
+write plan.
 
 ```text
-.omv/state + .omv/targets + adapter capabilities + filesystem
+.omv/state + .omv/targets + .omv/integrations + capabilities + filesystem
   -> omv plan
-  -> deterministic target statuses and proposed writes
-  -> omv sync applies that plan
+  -> deterministic target/integration statuses and proposed writes
+  -> omv sync or omv integrate apply applies the relevant plan
 ```
 
 ## Architecture
@@ -54,7 +61,7 @@ set, adapter behavior, compatibility status, and write plan.
                                  ▼
                          App Orchestration
   ┌──────────────────────────────────────────────────────────────┐
-  │ load .omv config, state, targets, adapters, contracts         │
+  │ load .omv config, state, targets, integrations, adapters      │
   │ resolve project root and locale                              │
   │ call version engine, planner, sync executor, migration check  │
   │ render text or structured JSON                               │
@@ -103,7 +110,8 @@ set, adapter behavior, compatibility status, and write plan.
   │ .omv/config.toml       profile and policies                  │
   │ .omv/state.toml        version truth                         │
   │ .omv/targets.toml      human-editable target instances        │
-  │ .omv/adapters.toml     installed AI/spec host projections     │
+  │ .omv/adapters.toml     legacy AI/spec projection recovery     │
+  │ .omv/integrations.toml selected providers, snapshots, status  │
   │ .omv/contracts/*       generated/readable capability metadata │
   │ .omv/ai/*              generated agent/spec guidance          │
   └──────────────────────────────────────────────────────────────┘
@@ -142,8 +150,8 @@ Targets are human-editable TOML records. Adapters are Rust implementations that
 understand one target kind or file family. The adapter computes status and
 proposed writes; the sync executor applies those writes.
 
-Stage 1 keeps V1 target files compatible while moving execution behind the
-adapter boundary:
+Language-based target records remain compatible while execution moves behind
+the adapter boundary:
 
 ```toml
 schema_version = 1
@@ -158,10 +166,12 @@ strategy = "intent-only"
 enabled = true
 ```
 
-Stage 2 formally enables V2 target kinds:
+Generalized target records use `kind`. Operators should choose the concrete
+target kind they need; `schema_version` is internal compatibility metadata, not
+a user-facing feature gate:
 
 ```toml
-schema_version = 2
+schema_version = 1
 
 [[targets]]
 id = "root-version-file"
@@ -210,12 +220,15 @@ lockfile = "update"
 mode = "write"
 ```
 
-Stage 2 implementation notes:
+Kind-based implementation notes:
 
-- Schema V1 target records remain compatible and continue to use
+- Language-based target records remain compatible and continue to use
   `language`, `manifest_path`, and `runtime_export_path`.
-- Schema V2 records use `kind` plus typed kind-specific fields. V1 and V2
-  records may coexist in one schema V2 file.
+- Kind-based records use `kind` plus typed kind-specific fields and may coexist
+  with language-based records regardless of the file's `schema_version`.
+- Unknown `kind` values do not block parsing known targets. The current binary
+  reports those records as `unsupported`, does not execute them, and tells the
+  operator to update OMV for that capability.
 - `yaml-scalar` intentionally supports simple mapping scalar paths only. It
   rejects sequences, anchors, aliases, and block scalars until OMV adopts a
   fuller YAML round-trip parser.
@@ -223,6 +236,82 @@ Stage 2 implementation notes:
   and one-level `prefix/*` globs. Its lockfile update strategy is narrow and
   deterministic: OMV updates matching workspace package version lines in
   `Cargo.lock` and does not run `cargo update`.
+
+## Platformized Host Integration Model
+
+Host integration is distinct from target synchronization and from legacy
+adapter projection. The forward product surface is provider/capability based:
+
+- providers are host frameworks such as `codex` or `trellis`
+- capabilities are medium-grained installable behaviors such as
+  `project-instructions`, `host-skill`, `spec-guide`,
+  `spec-index-snippet`, and `finalize-boundary`
+- `.omv/integrations.toml` persists selected providers/capabilities plus the
+  last provider-level detection snapshot and capability status
+- `.omv/adapters.toml` remains legacy projection recovery metadata for
+  compatibility commands
+- `.omv/ai/*` remains generated canonical guidance; installed host files are
+  derived projections and must not become authority
+
+MVP provider support is intentionally small:
+
+| Provider | Type | MVP behavior |
+| --- | --- | --- |
+| `codex` | agent | supported; may bootstrap lightweight instruction files |
+| `trellis` | spec/workflow | supported; requires existing Trellis installation before mutation |
+| `claude` | agent | future; hidden from init UI in MVP |
+| `openspec` | spec | future; hidden from init UI in MVP |
+
+Capability status is capability-granular:
+
+- `selected`
+- `pending`
+- `installed`
+- `failed`
+
+Failures include both a stable machine reason code and a human-readable display
+message. `omv integrate apply` is best-effort per selected capability: it
+preserves successful installs, records failed capabilities, and returns
+non-zero if any selected capability failed.
+
+`omv integrate apply` must always re-detect the workspace before mutation and
+must run targeted worktree-safety checks over only the files it would affect.
+Codex can bootstrap lightweight instruction host files. Trellis and future
+framework-style providers require an existing host installation before OMV
+mutates framework files.
+
+### Adapter Compatibility Transition
+
+`omv integrate status` and `omv integrate apply` are the forward commands for
+host provider workflows. Existing commands remain available during the MVP
+transition:
+
+- `omv adapter list`
+- `omv adapter status`
+- `omv adapter install`
+- `omv adapter refresh`
+
+Where behavior overlaps, legacy adapter commands should be wrappers or aliases
+over the same projection/status helpers used by integration apply/status. They
+must not grow a separate provider/capability model.
+
+### Finalize Boundary Capability
+
+`finalize-boundary` is a host integration capability, not a target adapter.
+The first MVP boundary is Trellis finish-work:
+
+- the host/agent supplies semantic `change_type`
+- OMV supplies deterministic fields and invocation wiring
+- missing `change_type` returns pending/manual-action rather than guessing
+- helper identity is structured as provider + boundary name and flattened to
+  the legacy finalize-task `source` string internally
+- the helper delegates to the existing `omv event finalize-task` path
+- idempotency is based on task identity, boundary identity, and a normalized
+  workspace snapshot hash
+
+The helper updates only the active platform-resolved completion surface through
+an OMV-managed block. It must not take over every sibling command or make host
+files authoritative.
 
 ## Protobuf Contract
 
@@ -321,6 +410,8 @@ OMV should keep these contracts distinct:
 - target capability contract: supported target kinds and adapter options
 - automation JSON contract: command output consumed by scripts and AI tools
 - AI/spec adapter contract: generated `.omv/ai/*` and host projections
+- host integration contract: `.omv/integrations.toml`, provider descriptors,
+  capability statuses, and integration apply/failure semantics
 
 Migration tooling should compare these domains and report whether a project is:
 
@@ -329,6 +420,8 @@ Migration tooling should compare these domains and report whether a project is:
 - missing capabilities
 - using deprecated target records
 - needing adapter refresh
+- needing integration apply/retry
+- using temporary adapter compatibility commands
 - needing target migration
 
 Stage 1 reports these statuses through `omv plan` diagnostics and summary
@@ -337,11 +430,14 @@ directory remains a future readable projection of the same registry data.
 
 ## Future Extension Seams
 
-The first two stages do not implement external SDKs, plugin runtimes, or
-release triggers. The architecture still reserves these seams:
+The first two stages and the host integration MVP do not implement external
+SDKs, public plugin runtimes, or release triggers. The architecture still
+reserves these seams:
 
 - external target adapters can later map to the same plan operation contract
 - CI and AI tools can consume plan JSON and capability metadata
+- future integration providers can map to the same provider/capability state
+  model after the internal registry is stable
 - future release triggers can request the same core operations without owning
   target behavior
 - migration analyzers can compare project-required capabilities with the

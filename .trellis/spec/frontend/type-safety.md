@@ -19,6 +19,9 @@ Use shared enums/structs for:
 - `VersionOutput`
 - `TargetLanguage`
 - `PreProjectStrategy`
+- `IntegrationProviderId`
+- `IntegrationCapabilityId`
+- `IntegrationCapabilityStatus`
 - `RowTemplate`
 - `PopupKind`
 
@@ -29,6 +32,8 @@ Keep these in shared modules rather than redefining them in each screen.
 - deserialize persisted TOML into typed enums/structs
 - validate auto-discovery results before converting them into draft rows
 - convert unsupported/raw input into typed validation errors before rendering
+- convert provider/capability records from backend integration descriptors into
+  typed UI rows before rendering
 
 ## Common Patterns
 
@@ -40,5 +45,6 @@ Keep these in shared modules rather than redefining them in each screen.
 ## Forbidden Patterns
 
 - raw `"zh-CN"` or `"en-US"` literals scattered across multiple UI files
+- raw provider/capability strings scattered through screens
 - stringly typed row template names
 - direct indexing into ad hoc maps for popup control flow when an enum would do

@@ -30,6 +30,15 @@ enum OmvCommandSupport {
   OMV_COMMAND_SUPPORT_PLAN = 6;
 }
 
+enum OmvIntegrationSupport {
+  OMV_INTEGRATION_SUPPORT_UNSPECIFIED = 0;
+  OMV_INTEGRATION_SUPPORT_PROJECT_INSTRUCTIONS = 1;
+  OMV_INTEGRATION_SUPPORT_HOST_SKILL = 2;
+  OMV_INTEGRATION_SUPPORT_SPEC_GUIDE = 3;
+  OMV_INTEGRATION_SUPPORT_SPEC_INDEX_SNIPPET = 4;
+  OMV_INTEGRATION_SUPPORT_FINALIZE_BOUNDARY = 5;
+}
+
 enum OmvPlanStatus {
   OMV_PLAN_STATUS_UNSPECIFIED = 0;
   OMV_PLAN_STATUS_OK = 1;
@@ -46,6 +55,7 @@ message OmvCapabilitySet {
   repeated OmvCommandSupport command_support = 3;
   repeated string json_contract_support = 4;
   uint32 ai_adapter_contract_version = 5;
+  repeated OmvIntegrationSupport integration_support = 6;
 
   reserved 20 to 39;
 }

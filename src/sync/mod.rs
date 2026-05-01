@@ -5,7 +5,9 @@ use serde::Serialize;
 
 use crate::contract::generated::omv::contract::v1::OmvPlanStatus;
 use crate::contract::registry::{CapabilityRegistry, stage1_registry};
-use crate::core::schema::{OmvTargetRecord, OmvTargets, OmvV2TargetRecord};
+use crate::core::schema::{
+    OmvTargetRecord, OmvTargets, OmvUnsupportedTargetRecord, OmvV2TargetRecord,
+};
 use crate::core::target::{TargetKind, TargetLanguage, TargetMode};
 use crate::errors::{OmvError, TargetError};
 
@@ -202,6 +204,44 @@ impl PlanTargetResult {
         }
     }
 
+    fn unsupported_kind(target: &OmvUnsupportedTargetRecord) -> Self {
+        Self {
+            id: target.id.clone(),
+            adapter: target.adapter.clone(),
+            kind: target.kind.clone(),
+            language: String::new(),
+            paths: target.paths.clone(),
+            current_value_summary: String::from("unsupported"),
+            expected_value_summary: String::from("unsupported"),
+            status: PlanStatus::Unsupported,
+            operations: Vec::new(),
+            diagnostics: vec![format!(
+                "current OMV binary does not support target kind {}; update OMV to use this capability",
+                target.kind
+            )],
+            required: target.enabled,
+        }
+    }
+
+    fn skipped_unsupported_kind(target: &OmvUnsupportedTargetRecord) -> Self {
+        Self {
+            id: target.id.clone(),
+            adapter: target.adapter.clone(),
+            kind: target.kind.clone(),
+            language: String::new(),
+            paths: target.paths.clone(),
+            current_value_summary: String::from("target disabled"),
+            expected_value_summary: String::from("no write expected"),
+            status: PlanStatus::Skipped,
+            operations: Vec::new(),
+            diagnostics: vec![format!(
+                "target kind {} is not supported by this OMV binary but target is disabled",
+                target.kind
+            )],
+            required: false,
+        }
+    }
+
     fn errored_v2(target: &OmvV2TargetRecord, err: OmvError) -> Self {
         Self {
             id: target.id.clone(),
@@ -341,7 +381,7 @@ pub fn plan_all_targets_with_registry(
             target_results.push(PlanTargetResult::unsupported_v2(
                 target,
                 format!(
-                    "contract v{} does not support target kind {}",
+                    "current OMV contract v{} does not support target kind {}; update OMV to use this capability",
                     registry.contract_version,
                     target.kind.as_str()
                 ),
@@ -369,18 +409,19 @@ pub fn plan_all_targets_with_registry(
         }
     }
 
+    for target in &targets.unsupported_targets {
+        if target.enabled {
+            target_results.push(PlanTargetResult::unsupported_kind(target));
+        } else {
+            target_results.push(PlanTargetResult::skipped_unsupported_kind(target));
+        }
+    }
+
     let mut migration_status = Vec::new();
-    if targets.schema_version == 1 {
-        migration_status.push(String::from("v1-compatible"));
-        migration_status.push(String::from("target-migration-available"));
-    } else if targets.schema_version == 2 {
+    if targets.schema_version >= 1 {
         migration_status.push(String::from("current-project"));
-    } else if targets.schema_version < 1 {
-        migration_status.push(String::from("compatible-old-project"));
-        migration_status.push(String::from("target-migration-needed"));
     } else {
-        migration_status.push(String::from("target-migration-needed"));
-        migration_status.push(String::from("missing-capability"));
+        migration_status.push(String::from("compatible-old-project"));
     }
 
     if target_results
@@ -393,13 +434,10 @@ pub fn plan_all_targets_with_registry(
     let project_status = if target_results
         .iter()
         .any(|target| target.status == PlanStatus::Unsupported)
-        || targets.schema_version > 2
     {
         String::from("missing-capability")
     } else if targets.schema_version < 1 {
         String::from("compatible-old-project")
-    } else if targets.schema_version == 1 {
-        String::from("v1-compatible")
     } else {
         String::from("current-project")
     };
@@ -676,7 +714,7 @@ pub(crate) fn replace_or_append_line(content: &str, prefix: &str, new_line: &str
 
 #[cfg(test)]
 mod tests {
-    use crate::core::schema::{OmvTargetRecord, OmvTargets};
+    use crate::core::schema::{OmvTargetRecord, OmvTargets, OmvUnsupportedTargetRecord};
     use crate::core::target::TargetLanguage;
 
     use super::{PlanStatus, plan_all_targets, replace_or_append_line, sync_all_targets};
@@ -712,6 +750,7 @@ mod tests {
                 enabled: false,
             }],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         };
 
         let summary = sync_all_targets(std::path::Path::new("."), &targets, "2604.13.1")
@@ -734,6 +773,7 @@ mod tests {
                 enabled: true,
             }],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         };
         let root = std::env::temp_dir().join(format!(
             "omv-plan-{}",
@@ -752,5 +792,32 @@ mod tests {
         assert_eq!(ok.targets[0].status, PlanStatus::Ok);
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn plan_all_targets_reports_unknown_kind_as_unsupported() {
+        let targets = OmvTargets {
+            schema_version: 99,
+            targets: Vec::new(),
+            v2_targets: Vec::new(),
+            unsupported_targets: vec![OmvUnsupportedTargetRecord {
+                id: "future-target".to_owned(),
+                kind: "future-workspace".to_owned(),
+                adapter: "unknown".to_owned(),
+                root: ".".to_owned(),
+                enabled: true,
+                paths: vec!["future.toml".to_owned()],
+            }],
+        };
+
+        let plan = plan_all_targets(std::path::Path::new("."), &targets, "2605.1.3");
+
+        assert_eq!(plan.project_status, "missing-capability");
+        assert_eq!(plan.targets[0].status, PlanStatus::Unsupported);
+        assert!(plan.targets[0].operations.is_empty());
+        assert!(
+            plan.targets[0].diagnostics[0].contains("update OMV"),
+            "diagnostic should point users toward a newer binary"
+        );
     }
 }

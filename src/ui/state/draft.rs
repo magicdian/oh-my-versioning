@@ -1,6 +1,10 @@
+use crate::core::integration::{
+    IntegrationCapability, IntegrationProvider, mvp_provider_descriptors,
+};
 use crate::core::locale::OperatorLocale;
 use crate::core::target::{PreProjectStrategy, TargetLanguage};
 use crate::core::versioning::BuildPolicy;
+use crate::ui::discovery::IntegrationProviderDiscovery;
 
 pub const MIN_TIMEZONE_OFFSET_HOURS: i8 = -12;
 pub const MAX_TIMEZONE_OFFSET_HOURS: i8 = 14;
@@ -15,10 +19,26 @@ pub struct TargetDraft {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InitDraft {
     pub targets: Vec<TargetDraft>,
+    pub integrations: Vec<IntegrationProviderDraft>,
     pub pre_project_strategy: PreProjectStrategy,
     pub timezone_offset_hours: i8,
     pub build_policy: BuildPolicy,
     pub locale: OperatorLocale,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationProviderDraft {
+    pub provider: IntegrationProvider,
+    pub detected: bool,
+    pub recommended: bool,
+    pub capabilities: Vec<IntegrationCapabilityDraft>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrationCapabilityDraft {
+    pub capability: IntegrationCapability,
+    pub selected: bool,
+    pub recommended: bool,
 }
 
 impl Default for InitDraft {
@@ -40,11 +60,21 @@ impl InitDraft {
 
         Self {
             targets,
+            integrations: build_integration_drafts(&[]),
             pre_project_strategy: PreProjectStrategy::IntentOnly,
             timezone_offset_hours: 0,
             build_policy: BuildPolicy::DailyReset,
             locale: OperatorLocale::EnUs,
         }
+    }
+
+    pub fn from_discovery(
+        detected: &[TargetLanguage],
+        integrations: &[IntegrationProviderDiscovery],
+    ) -> Self {
+        let mut draft = Self::from_detected_languages(detected);
+        draft.integrations = build_integration_drafts(integrations);
+        draft
     }
 
     pub fn toggle_language(&mut self, language: TargetLanguage) {
@@ -107,6 +137,55 @@ impl InitDraft {
             .map(|target| target.language)
             .collect()
     }
+
+    pub fn toggle_integration_provider(&mut self, provider: IntegrationProvider) {
+        if let Some(provider_draft) = self
+            .integrations
+            .iter_mut()
+            .find(|entry| entry.provider == provider)
+        {
+            let any_selected = provider_draft
+                .capabilities
+                .iter()
+                .any(|capability| capability.selected);
+            for capability in &mut provider_draft.capabilities {
+                capability.selected = !any_selected;
+            }
+        }
+    }
+
+    pub fn toggle_integration_capability(
+        &mut self,
+        provider: IntegrationProvider,
+        capability: IntegrationCapability,
+    ) {
+        if let Some(capability_draft) = self
+            .integrations
+            .iter_mut()
+            .find(|entry| entry.provider == provider)
+            .and_then(|entry| {
+                entry
+                    .capabilities
+                    .iter_mut()
+                    .find(|entry| entry.capability == capability)
+            })
+        {
+            capability_draft.selected = !capability_draft.selected;
+        }
+    }
+
+    pub fn selected_integrations(&self) -> Vec<(IntegrationProvider, IntegrationCapability)> {
+        self.integrations
+            .iter()
+            .flat_map(|provider| {
+                provider
+                    .capabilities
+                    .iter()
+                    .filter(|capability| capability.selected)
+                    .map(|capability| (provider.provider, capability.capability))
+            })
+            .collect()
+    }
 }
 
 fn format_utc_offset(offset: i8) -> String {
@@ -117,11 +196,65 @@ fn format_utc_offset(offset: i8) -> String {
     }
 }
 
+fn build_integration_drafts(
+    discovered: &[IntegrationProviderDiscovery],
+) -> Vec<IntegrationProviderDraft> {
+    mvp_provider_descriptors()
+        .into_iter()
+        .map(|descriptor| {
+            let provider = descriptor.provider;
+            let detected = discovered
+                .iter()
+                .find(|entry| entry.provider == provider)
+                .map(|entry| entry.detected)
+                .unwrap_or(false);
+            let recommended = detected;
+            let capabilities = descriptor
+                .capabilities
+                .iter()
+                .map(|descriptor| {
+                    let capability = descriptor.capability;
+                    let capability_recommended = match (provider, capability) {
+                        (IntegrationProvider::Trellis, IntegrationCapability::FinalizeBoundary) => {
+                            detected
+                        }
+                        (_, _) => detected && descriptor.default_selected,
+                    };
+                    IntegrationCapabilityDraft {
+                        capability,
+                        selected: capability_recommended,
+                        recommended: detected && descriptor.recommended,
+                    }
+                })
+                .collect();
+
+            IntegrationProviderDraft {
+                provider,
+                detected,
+                recommended,
+                capabilities,
+            }
+        })
+        .collect()
+}
+
+pub fn integration_capability_target_files(capability: IntegrationCapability) -> Vec<String> {
+    mvp_provider_descriptors()
+        .into_iter()
+        .flat_map(|provider| provider.capabilities)
+        .find(|descriptor| descriptor.capability == capability)
+        .map(|descriptor| descriptor.target_paths)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
+    use crate::core::integration::{IntegrationCapability, IntegrationProvider};
     use crate::core::locale::OperatorLocale;
     use crate::core::target::{PreProjectStrategy, TargetLanguage};
     use crate::core::versioning::BuildPolicy;
+
+    use crate::ui::discovery::IntegrationProviderDiscovery;
 
     use super::InitDraft;
 
@@ -200,5 +333,51 @@ mod tests {
 
         draft.set_locale(OperatorLocale::ZhCn);
         assert_eq!(draft.locale_popup_index(), 1);
+    }
+
+    #[test]
+    fn detected_trellis_preselects_finalize_boundary_but_allows_override() {
+        let mut draft = InitDraft::from_discovery(
+            &[],
+            &[IntegrationProviderDiscovery {
+                provider: IntegrationProvider::Trellis,
+                detected: true,
+            }],
+        );
+
+        assert!(draft.selected_integrations().contains(&(
+            IntegrationProvider::Trellis,
+            IntegrationCapability::FinalizeBoundary
+        )));
+
+        draft.toggle_integration_capability(
+            IntegrationProvider::Trellis,
+            IntegrationCapability::FinalizeBoundary,
+        );
+
+        assert!(!draft.selected_integrations().contains(&(
+            IntegrationProvider::Trellis,
+            IntegrationCapability::FinalizeBoundary
+        )));
+    }
+
+    #[test]
+    fn provider_toggle_selects_or_clears_provider_capabilities() {
+        let mut draft = InitDraft::default();
+        assert!(draft.selected_integrations().is_empty());
+
+        draft.toggle_integration_provider(IntegrationProvider::Codex);
+        assert!(draft.selected_integrations().contains(&(
+            IntegrationProvider::Codex,
+            IntegrationCapability::ProjectInstructions
+        )));
+        assert!(
+            draft
+                .selected_integrations()
+                .contains(&(IntegrationProvider::Codex, IntegrationCapability::HostSkill))
+        );
+
+        draft.toggle_integration_provider(IntegrationProvider::Codex);
+        assert!(draft.selected_integrations().is_empty());
     }
 }

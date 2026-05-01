@@ -1,11 +1,12 @@
-# Complex Project Targets V2 Example
+# Complex Project Kind Targets Example
 
-This sample shows a generic `.omv/targets.toml` schema V2 setup for a project
+This sample shows a generic `.omv/targets.toml` kind-based setup for a project
 with documentation, a component manifest, a public C header, and a Rust
-workspace. Use neutral project-specific IDs and paths when adapting it.
+workspace. Users choose concrete target `kind` values; `schema_version` is
+internal compatibility metadata and is not a user-facing feature gate.
 
 ```toml
-schema_version = 2
+schema_version = 1
 
 [[targets]]
 id = "root-version-file"

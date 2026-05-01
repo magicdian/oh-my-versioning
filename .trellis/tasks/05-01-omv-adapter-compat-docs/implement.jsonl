@@ -1,0 +1,22 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Parent decisions and migration strategy"}
+{"file": ".trellis/tasks/05-01-omv-integration-contract-storage/prd.md", "reason": "Integration contract/storage scope"}
+{"file": ".trellis/tasks/05-01-omv-integrate-plan-apply/prd.md", "reason": "Integrate command behavior"}
+{"file": ".trellis/tasks/05-01-omv-init-integration-review/prd.md", "reason": "Init review behavior"}
+{"file": ".trellis/tasks/05-01-omv-finalize-boundary-helper/prd.md", "reason": "Finalize-boundary helper behavior"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Architecture doc to update"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend spec index"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend module boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Persistence contract docs"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Integration/finalize error matrix"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Catalog-driven output expectations"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Quality checklist"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend spec index"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Init review UI docs"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Init draft/integration state docs"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Typed UI state docs"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer integration flow docs"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Provider/adapter reuse guidance"}
+{"file": "src/adapter.rs", "reason": "Generated AI instruction/contract source"}
+{"file": ".omv/ai/contract.json", "reason": "Generated contract artifact alignment"}
+{"file": ".omv/ai/instructions.md", "reason": "Generated instructions artifact alignment"}

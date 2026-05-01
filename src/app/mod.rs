@@ -1,36 +1,69 @@
+use std::collections::BTreeSet;
+use std::fs;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
 use crate::adapter;
 use crate::cli::{
-    AdapterAction, AdapterCommand, Cli, Command, EventAction, EventCommand, FinalizeTaskCommand,
-    OutputMode,
+    AdapterAction, AdapterCommand, Cli, Command, EventAction, EventCommand,
+    FinalizeBoundaryCommand, FinalizeTaskCommand, IntegrateAction, IntegrateCommand, OutputMode,
 };
 use crate::contract::registry::STRUCTURED_JSON_CONTRACT_VERSION;
 use crate::core::date::LogicalDate;
 use crate::core::finalization::{
     self, ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
 };
+use crate::core::integration::{
+    IntegrationCapability, IntegrationCapabilityDescriptor, IntegrationCapabilityStatus,
+    IntegrationDetectionSnapshot, IntegrationFailure, IntegrationProvider,
+    IntegrationProviderDescriptor, OmvIntegrationCapabilityState, OmvIntegrationProviderState,
+    OmvIntegrations, mvp_provider_descriptors,
+};
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::{
-    OmvConfig, OmvFinalizationRecord, OmvState, OmvTargetRecord, OmvTargets,
+    OmvAdapterInstallation, OmvAdapterTarget, OmvConfig, OmvFinalizationRecord, OmvState,
+    OmvTargetRecord, OmvTargets,
 };
 use crate::core::target::TargetLanguage;
 use crate::core::time::ntp::NtpTimeSource;
 use crate::core::time::{LastTimeSource, SystemTimeSource, TimeSource};
 use crate::core::versioning::engine;
-use crate::errors::{ConfigError, FinalizationError, OmvError, StateError, TargetError};
+use crate::errors::{
+    AdapterError, ConfigError, FinalizationError, IntegrationError, OmvError, StateError,
+    TargetError,
+};
 use crate::i18n::{self, Catalog};
 use crate::storage;
 use crate::ui::app as init_ui_state;
-use crate::ui::state::draft::InitDraft;
+use crate::ui::state::draft::{InitDraft, integration_capability_target_files};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppOutput {
     pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct InitPersistenceOutcome {
+    integrations: InitIntegrationOutcome,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct InitIntegrationOutcome {
+    selected_capabilities: usize,
+    status: InitIntegrationApplyStatus,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+enum InitIntegrationApplyStatus {
+    NoSelection,
+    Applied,
+    Deferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -93,12 +126,94 @@ struct FinalizeTaskExecution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct FinalizeBoundaryExecution {
+    provider: String,
+    boundary: String,
+    source: String,
+    task_id: String,
+    change_type: Option<String>,
+    status: String,
+    tests: String,
+    fingerprint: String,
+    workspace_snapshot_hash: String,
+    outcome: String,
+    reason: String,
+    manual_action_required: bool,
+    finalize_task: Option<FinalizeTaskExecution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct StructuredEnvelope<T: Serialize> {
     ok: bool,
     contract_version: &'static str,
     command: String,
     data: Option<T>,
     error: Option<crate::errors::StructuredError>,
+}
+
+const MANAGED_BEGIN_PREFIX: &str = "<!-- OMV-MANAGED-BEGIN:";
+const MANAGED_END_PREFIX: &str = "<!-- OMV-MANAGED-END:";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IntegrationProviderDetection {
+    detected: bool,
+    evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationStatusSummary {
+    providers: Vec<IntegrationProviderPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationProviderPlan {
+    provider: String,
+    detected: bool,
+    evidence: Vec<String>,
+    bootstrap_policy: String,
+    capabilities: Vec<IntegrationCapabilityPlan>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationCapabilityPlan {
+    provider: String,
+    capability: String,
+    selected: bool,
+    status: String,
+    target_paths: Vec<String>,
+    failure: Option<IntegrationFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationApplySummary {
+    before: IntegrationStatusSummary,
+    results: Vec<IntegrationApplyCapabilityResult>,
+    succeeded: usize,
+    failed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct IntegrationApplyCapabilityResult {
+    provider: String,
+    capability: String,
+    status: String,
+    target_paths: Vec<String>,
+    failure: Option<IntegrationFailure>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IntegrationTargetBehavior {
+    FullFileOrManagedBlock,
+    DedicatedFile,
+    ManagedBlockOnly,
+    TrellisFinalizeBoundary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct IntegrationTarget {
+    source_rel: &'static str,
+    host_rel: &'static str,
+    behavior: IntegrationTargetBehavior,
 }
 
 pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
@@ -125,6 +240,13 @@ pub fn run(cli: Cli) -> Result<AppOutput, OmvError> {
         Command::Adapter(adapter_command) => {
             run_adapter(&cwd, &omv_root, &catalog, cli.output_mode, adapter_command)
         }
+        Command::Integrate(integrate_command) => run_integrate(
+            &cwd,
+            &omv_root,
+            &catalog,
+            cli.output_mode,
+            integrate_command,
+        ),
         Command::Help => Ok(AppOutput {
             message: render_help(&catalog),
         }),
@@ -151,6 +273,7 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.commands.current")),
         format!("  {}", catalog.t("cli.help.commands.event")),
         format!("  {}", catalog.t("cli.help.commands.adapter")),
+        format!("  {}", catalog.t("cli.help.commands.integrate")),
         format!("  {}", catalog.t("cli.help.commands.help")),
         format!("  {}", catalog.t("cli.help.commands.version")),
         String::new(),
@@ -170,6 +293,7 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.examples.current")),
         format!("  {}", catalog.t("cli.help.examples.event")),
         format!("  {}", catalog.t("cli.help.examples.adapter")),
+        format!("  {}", catalog.t("cli.help.examples.integrate")),
         format!("  {}", catalog.t("cli.help.examples.locale")),
         format!("  {}", catalog.t("cli.help.examples.no_ntp")),
     ]
@@ -193,6 +317,7 @@ pub fn render_error(locale: &str, err: &OmvError) -> String {
             OmvError::Adapter(_) => cat.tf("error.adapter", &["detail", detail.as_str()]),
             OmvError::Config(_) => cat.tf("error.config", &["detail", detail.as_str()]),
             OmvError::Finalization(_) => cat.tf("error.finalization", &["detail", detail.as_str()]),
+            OmvError::Integration(_) => cat.tf("error.integration", &["detail", detail.as_str()]),
             OmvError::State(_) => cat.tf("error.state", &["detail", detail.as_str()]),
             OmvError::Time(_) => cat.tf("error.time", &["detail", detail.as_str()]),
             OmvError::Ntp(_) => cat.tf("error.ntp", &["detail", detail.as_str()]),
@@ -234,20 +359,52 @@ fn run_init(
         draft
     };
 
-    persist_init_state(omv_root, &draft)?;
+    let outcome = persist_init_state(omv_root, &draft)?;
 
     let message = match output_mode {
-        OutputMode::Text => catalog.t("init.result.saved"),
+        OutputMode::Text => render_init_result_text(catalog, &outcome),
         OutputMode::Json => render_structured_success(
             "init",
             serde_json::json!({
                 "saved": true,
-                "omv_root": omv_root.display().to_string()
+                "omv_root": omv_root.display().to_string(),
+                "integrations": outcome.integrations
             }),
         ),
     };
 
     Ok(AppOutput { message })
+}
+
+fn render_init_result_text(catalog: &Catalog, outcome: &InitPersistenceOutcome) -> String {
+    match outcome.integrations.status {
+        InitIntegrationApplyStatus::NoSelection => catalog.t("init.result.saved"),
+        InitIntegrationApplyStatus::Applied => {
+            let count = outcome.integrations.selected_capabilities.to_string();
+            catalog.tf(
+                "init.result.saved_integrations_applied",
+                &["count", count.as_str()],
+            )
+        }
+        InitIntegrationApplyStatus::Deferred => {
+            let (reason, detail) = outcome
+                .integrations
+                .reason
+                .split_once(':')
+                .unwrap_or((outcome.integrations.reason.as_str(), ""));
+            match reason {
+                "unsupported-capability" => catalog.tf(
+                    "init.result.saved_integrations_deferred_unsupported",
+                    &["detail", detail],
+                ),
+                "unsafe-worktree" => catalog.tf(
+                    "init.result.saved_integrations_deferred_unsafe",
+                    &["detail", detail],
+                ),
+                _ => catalog.t("init.result.saved_integrations_deferred"),
+            }
+        }
+    }
 }
 
 fn run_bump(
@@ -400,6 +557,16 @@ fn run_event(
                 OutputMode::Json => render_structured_success("event.finalize-task", &execution),
             }
         }
+        EventAction::FinalizeBoundary(finalize_command) => {
+            let execution =
+                execute_finalize_boundary(omv_root, &ntp, &system, ntp_override, finalize_command)?;
+            match output_mode {
+                OutputMode::Text => render_finalize_boundary_text(catalog, &execution),
+                OutputMode::Json => {
+                    render_structured_success("event.finalize-boundary", &execution)
+                }
+            }
+        }
     };
 
     Ok(AppOutput { message })
@@ -458,6 +625,34 @@ fn run_adapter(
     Ok(AppOutput { message })
 }
 
+fn run_integrate(
+    cwd: &Path,
+    omv_root: &Path,
+    catalog: &Catalog,
+    output_mode: OutputMode,
+    command: IntegrateCommand,
+) -> Result<AppOutput, OmvError> {
+    let project_root = storage::resolve_project_root(cwd)?;
+    let message = match command.action {
+        IntegrateAction::Status => {
+            let status = execute_integrate_status(omv_root, &project_root)?;
+            match output_mode {
+                OutputMode::Text => render_integrate_status_text(catalog, &status),
+                OutputMode::Json => render_structured_success("integrate.status", &status),
+            }
+        }
+        IntegrateAction::Apply => {
+            let apply = execute_integrate_apply(omv_root, &project_root)?;
+            match output_mode {
+                OutputMode::Text => render_integrate_apply_text(catalog, &apply),
+                OutputMode::Json => render_structured_success("integrate.apply", &apply),
+            }
+        }
+    };
+
+    Ok(AppOutput { message })
+}
+
 fn render_finalize_task_text(catalog: &Catalog, execution: &FinalizeTaskExecution) -> String {
     if execution.duplicate {
         return catalog.tf(
@@ -503,6 +698,41 @@ fn render_finalize_task_text(catalog: &Catalog, execution: &FinalizeTaskExecutio
             execution.task_id.as_str(),
             "reason",
             reason.as_str(),
+        ],
+    )
+}
+
+fn render_finalize_boundary_text(
+    catalog: &Catalog,
+    execution: &FinalizeBoundaryExecution,
+) -> String {
+    if execution.manual_action_required {
+        return catalog.tf(
+            "cli.event.finalize_boundary.pending_change_type",
+            &[
+                "task_id",
+                execution.task_id.as_str(),
+                "provider",
+                execution.provider.as_str(),
+                "boundary",
+                execution.boundary.as_str(),
+            ],
+        );
+    }
+
+    if let Some(finalize_task) = &execution.finalize_task {
+        return render_finalize_task_text(catalog, finalize_task);
+    }
+
+    catalog.tf(
+        "cli.event.finalize_boundary.pending_change_type",
+        &[
+            "task_id",
+            execution.task_id.as_str(),
+            "provider",
+            execution.provider.as_str(),
+            "boundary",
+            execution.boundary.as_str(),
         ],
     )
 }
@@ -617,6 +847,832 @@ fn render_adapter_status_text(catalog: &Catalog, status: &adapter::AdapterStatus
         ));
     }
     lines.join("\n")
+}
+
+fn render_integrate_status_text(catalog: &Catalog, status: &IntegrationStatusSummary) -> String {
+    let mut lines = vec![catalog.t("cli.integrate.status.header")];
+    for provider in &status.providers {
+        lines.push(catalog.tf(
+            "cli.integrate.status.provider",
+            &[
+                "provider",
+                provider.provider.as_str(),
+                "detected",
+                bool_text(provider.detected),
+            ],
+        ));
+        for capability in &provider.capabilities {
+            lines.push(catalog.tf(
+                "cli.integrate.status.capability",
+                &[
+                    "capability",
+                    capability.capability.as_str(),
+                    "status",
+                    capability.status.as_str(),
+                    "selected",
+                    bool_text(capability.selected),
+                ],
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn render_integrate_apply_text(catalog: &Catalog, apply: &IntegrationApplySummary) -> String {
+    let succeeded = apply.succeeded.to_string();
+    let failed = apply.failed.to_string();
+    let mut lines = vec![catalog.tf(
+        "cli.integrate.apply.summary",
+        &["succeeded", succeeded.as_str(), "failed", failed.as_str()],
+    )];
+
+    for result in &apply.results {
+        lines.push(catalog.tf(
+            "cli.integrate.apply.item",
+            &[
+                "provider",
+                result.provider.as_str(),
+                "capability",
+                result.capability.as_str(),
+                "status",
+                result.status.as_str(),
+            ],
+        ));
+        if let Some(failure) = &result.failure {
+            lines.push(catalog.tf(
+                "cli.integrate.apply.failure",
+                &[
+                    "code",
+                    failure.reason_code.as_str(),
+                    "message",
+                    failure.display_message.as_str(),
+                ],
+            ));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn bool_text(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
+}
+
+fn execute_integrate_status(
+    omv_root: &Path,
+    project_root: &Path,
+) -> Result<IntegrationStatusSummary, OmvError> {
+    adapter::ensure_canonical_artifacts(omv_root)?;
+    let state = load_integration_state(omv_root)?;
+    build_integration_status(project_root, &state)
+}
+
+fn execute_integrate_apply(
+    omv_root: &Path,
+    project_root: &Path,
+) -> Result<IntegrationApplySummary, OmvError> {
+    adapter::ensure_canonical_artifacts(omv_root)?;
+    let mut state = load_integration_state(omv_root)?;
+    let before = build_integration_status(project_root, &state)?;
+    update_state_from_status(&mut state, &before);
+    save_integration_state(omv_root, &state)?;
+
+    let mut results = Vec::new();
+    for plan in selected_integration_capabilities(&before) {
+        let result = apply_integration_capability(omv_root, project_root, &plan);
+        update_state_capability(&mut state, &result);
+        save_integration_state(omv_root, &state)?;
+        results.push(result);
+    }
+
+    let succeeded = results
+        .iter()
+        .filter(|result| result.status == "installed")
+        .count();
+    let failed = results
+        .iter()
+        .filter(|result| result.status == "failed")
+        .count();
+    let summary = IntegrationApplySummary {
+        before,
+        results,
+        succeeded,
+        failed,
+    };
+
+    if failed > 0 {
+        let result = serde_json::to_value(&summary).expect("integration summary should serialize");
+        return Err(IntegrationError::ApplyFailed {
+            reason: String::from("one or more selected integration capabilities failed"),
+            result: Box::new(result),
+        }
+        .into());
+    }
+
+    Ok(summary)
+}
+
+fn selected_integration_capabilities(
+    status: &IntegrationStatusSummary,
+) -> Vec<IntegrationCapabilityPlan> {
+    status
+        .providers
+        .iter()
+        .flat_map(|provider| provider.capabilities.iter())
+        .filter(|capability| {
+            capability.selected && capability.status != "installed" && capability.status != "failed"
+        })
+        .cloned()
+        .collect()
+}
+
+fn apply_integration_capability(
+    omv_root: &Path,
+    project_root: &Path,
+    plan: &IntegrationCapabilityPlan,
+) -> IntegrationApplyCapabilityResult {
+    let Some(provider) = IntegrationProvider::parse(&plan.provider) else {
+        return failed_integration_result(plan, "unknown-provider", "unknown integration provider");
+    };
+    let Some(capability) = IntegrationCapability::parse(&plan.capability) else {
+        return failed_integration_result(
+            plan,
+            "unknown-capability",
+            "unknown integration capability",
+        );
+    };
+
+    if provider == IntegrationProvider::Trellis
+        && !detect_integration_provider(project_root, provider).detected
+    {
+        return failed_integration_result(
+            plan,
+            "provider-not-detected",
+            "trellis integration requires an existing .trellis installation",
+        );
+    }
+
+    let Some(target) = integration_target(provider, capability) else {
+        return failed_integration_result(
+            plan,
+            "unsupported-capability",
+            "capability is not installable in this worker scope",
+        );
+    };
+
+    if let Err(err) = check_integration_target_safety(project_root, &target) {
+        let message = err.to_string();
+        return failed_integration_result(plan, "unsafe-worktree", message.as_str());
+    }
+
+    match install_integration_target(omv_root, project_root, &target, plan) {
+        Ok(mode) => {
+            if let Err(err) = record_adapter_target(omv_root, &target, plan, mode) {
+                let message = err.to_string();
+                return failed_integration_result(plan, "registry-write-failed", message.as_str());
+            }
+            IntegrationApplyCapabilityResult {
+                provider: plan.provider.clone(),
+                capability: plan.capability.clone(),
+                status: String::from("installed"),
+                target_paths: plan.target_paths.clone(),
+                failure: None,
+            }
+        }
+        Err(err) => {
+            let message = err.to_string();
+            failed_integration_result(plan, "install-failed", message.as_str())
+        }
+    }
+}
+
+fn failed_integration_result(
+    plan: &IntegrationCapabilityPlan,
+    code: &str,
+    message: &str,
+) -> IntegrationApplyCapabilityResult {
+    IntegrationApplyCapabilityResult {
+        provider: plan.provider.clone(),
+        capability: plan.capability.clone(),
+        status: String::from("failed"),
+        target_paths: plan.target_paths.clone(),
+        failure: Some(IntegrationFailure {
+            reason_code: code.to_owned(),
+            display_message: message.to_owned(),
+        }),
+    }
+}
+
+fn load_integration_state(omv_root: &Path) -> Result<OmvIntegrations, OmvError> {
+    storage::integrations::load_integrations(omv_root).map(normalize_integration_state)
+}
+
+fn save_integration_state(omv_root: &Path, state: &OmvIntegrations) -> Result<(), OmvError> {
+    storage::integrations::save_integrations(omv_root, state)
+}
+
+fn normalize_integration_state(mut state: OmvIntegrations) -> OmvIntegrations {
+    state.schema_version = 1;
+    for descriptor in mvp_provider_descriptors() {
+        let default_selected = default_integration_selected(&descriptor);
+        if !state
+            .providers
+            .iter()
+            .any(|existing| existing.provider == descriptor.provider)
+        {
+            state.providers.push(OmvIntegrationProviderState {
+                provider: descriptor.provider,
+                selected: default_selected,
+                detection: IntegrationDetectionSnapshot {
+                    detected: false,
+                    recommended: descriptor.capabilities.iter().any(|cap| cap.recommended),
+                },
+                capabilities: Vec::new(),
+            });
+        }
+
+        let provider_state = state
+            .providers
+            .iter_mut()
+            .find(|existing| existing.provider == descriptor.provider)
+            .expect("provider was inserted");
+        if provider_state.capabilities.is_empty() {
+            provider_state.selected = default_selected;
+        }
+
+        for capability in &descriptor.capabilities {
+            if !provider_state
+                .capabilities
+                .iter()
+                .any(|existing| existing.capability == capability.capability)
+            {
+                provider_state
+                    .capabilities
+                    .push(OmvIntegrationCapabilityState {
+                        capability: capability.capability,
+                        selected: default_selected,
+                        status: if default_selected {
+                            IntegrationCapabilityStatus::Pending
+                        } else {
+                            IntegrationCapabilityStatus::Selected
+                        },
+                        failure: None,
+                    });
+            }
+        }
+    }
+    state
+}
+
+fn build_integration_status(
+    project_root: &Path,
+    state: &OmvIntegrations,
+) -> Result<IntegrationStatusSummary, OmvError> {
+    let providers = mvp_provider_descriptors()
+        .into_iter()
+        .map(|descriptor| {
+            let state_provider = state
+                .providers
+                .iter()
+                .find(|candidate| candidate.provider == descriptor.provider);
+            let detection = detect_integration_provider(project_root, descriptor.provider);
+            let capabilities = descriptor
+                .capabilities
+                .iter()
+                .map(|capability_descriptor| {
+                    let state_capability = state_provider.and_then(|candidate| {
+                        candidate
+                            .capabilities
+                            .iter()
+                            .find(|item| item.capability == capability_descriptor.capability)
+                    });
+                    let selected = state_capability
+                        .map(|candidate| candidate.selected)
+                        .unwrap_or(default_capability_selected(
+                            &descriptor,
+                            capability_descriptor,
+                        ));
+                    let installed = is_integration_capability_installed(
+                        project_root,
+                        descriptor.provider,
+                        capability_descriptor.capability,
+                    );
+                    let status = if installed {
+                        IntegrationCapabilityStatus::Installed.as_str().to_owned()
+                    } else if state_capability
+                        .and_then(|candidate| candidate.failure.as_ref())
+                        .is_some()
+                        && selected
+                    {
+                        IntegrationCapabilityStatus::Failed.as_str().to_owned()
+                    } else if selected {
+                        IntegrationCapabilityStatus::Pending.as_str().to_owned()
+                    } else {
+                        IntegrationCapabilityStatus::Selected.as_str().to_owned()
+                    };
+                    IntegrationCapabilityPlan {
+                        provider: descriptor.provider.as_str().to_owned(),
+                        capability: capability_descriptor.capability.as_str().to_owned(),
+                        selected,
+                        status,
+                        target_paths: capability_descriptor.target_paths.clone(),
+                        failure: state_capability.and_then(|candidate| candidate.failure.clone()),
+                    }
+                })
+                .collect();
+
+            IntegrationProviderPlan {
+                provider: descriptor.provider.as_str().to_owned(),
+                detected: detection.detected,
+                evidence: detection.evidence,
+                bootstrap_policy: descriptor.bootstrap_policy.as_str().to_owned(),
+                capabilities,
+            }
+        })
+        .collect();
+
+    Ok(IntegrationStatusSummary { providers })
+}
+
+fn default_integration_selected(descriptor: &IntegrationProviderDescriptor) -> bool {
+    descriptor.provider == IntegrationProvider::Codex
+}
+
+fn default_capability_selected(
+    provider: &IntegrationProviderDescriptor,
+    capability: &IntegrationCapabilityDescriptor,
+) -> bool {
+    default_integration_selected(provider) && capability.default_selected
+}
+
+fn update_state_from_status(state: &mut OmvIntegrations, status: &IntegrationStatusSummary) {
+    for provider in &status.providers {
+        let Some(provider_id) = IntegrationProvider::parse(&provider.provider) else {
+            continue;
+        };
+        if let Some(state_provider) = state
+            .providers
+            .iter_mut()
+            .find(|item| item.provider == provider_id)
+        {
+            state_provider.detection = IntegrationDetectionSnapshot {
+                detected: provider.detected,
+                recommended: provider.detected,
+            };
+            for capability in &provider.capabilities {
+                let Some(capability_id) = IntegrationCapability::parse(&capability.capability)
+                else {
+                    continue;
+                };
+                if let Some(state_capability) = state_provider
+                    .capabilities
+                    .iter_mut()
+                    .find(|item| item.capability == capability_id)
+                {
+                    state_capability.status =
+                        parse_integration_status(&capability.status, state_capability.status);
+                    state_capability.failure = capability.failure.clone();
+                }
+            }
+        }
+    }
+}
+
+fn update_state_capability(state: &mut OmvIntegrations, result: &IntegrationApplyCapabilityResult) {
+    let Some(provider_id) = IntegrationProvider::parse(&result.provider) else {
+        return;
+    };
+    let Some(capability_id) = IntegrationCapability::parse(&result.capability) else {
+        return;
+    };
+    let Some(provider) = state
+        .providers
+        .iter_mut()
+        .find(|item| item.provider == provider_id)
+    else {
+        return;
+    };
+    let Some(capability) = provider
+        .capabilities
+        .iter_mut()
+        .find(|item| item.capability == capability_id)
+    else {
+        return;
+    };
+    capability.status = parse_integration_status(&result.status, capability.status);
+    capability.failure = result.failure.clone();
+}
+
+fn parse_integration_status(
+    value: &str,
+    fallback: IntegrationCapabilityStatus,
+) -> IntegrationCapabilityStatus {
+    match value {
+        "selected" => IntegrationCapabilityStatus::Selected,
+        "pending" => IntegrationCapabilityStatus::Pending,
+        "installed" => IntegrationCapabilityStatus::Installed,
+        "failed" => IntegrationCapabilityStatus::Failed,
+        _ => fallback,
+    }
+}
+
+fn detect_integration_provider(
+    project_root: &Path,
+    provider: IntegrationProvider,
+) -> IntegrationProviderDetection {
+    match provider {
+        IntegrationProvider::Codex => {
+            let mut evidence = Vec::new();
+            if project_root.join("AGENTS.md").exists() {
+                evidence.push(String::from("AGENTS.md"));
+            }
+            if project_root.join(".codex").exists() {
+                evidence.push(String::from(".codex"));
+            }
+            IntegrationProviderDetection {
+                detected: !evidence.is_empty(),
+                evidence,
+            }
+        }
+        IntegrationProvider::Trellis => {
+            let mut evidence = Vec::new();
+            if project_root.join(".trellis").exists() {
+                evidence.push(String::from(".trellis"));
+            }
+            if project_root.join(".trellis/spec/guides/index.md").exists() {
+                evidence.push(String::from(".trellis/spec/guides/index.md"));
+            }
+            IntegrationProviderDetection {
+                detected: !evidence.is_empty(),
+                evidence,
+            }
+        }
+    }
+}
+
+fn integration_target(
+    provider: IntegrationProvider,
+    capability: IntegrationCapability,
+) -> Option<IntegrationTarget> {
+    match (provider, capability) {
+        (IntegrationProvider::Codex, IntegrationCapability::ProjectInstructions) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/codex/AGENTS.md",
+                host_rel: "AGENTS.md",
+                behavior: IntegrationTargetBehavior::FullFileOrManagedBlock,
+            })
+        }
+        (IntegrationProvider::Codex, IntegrationCapability::HostSkill) => Some(IntegrationTarget {
+            source_rel: "adapters/codex/SKILL.md",
+            host_rel: ".codex/skills/omv-versioning/SKILL.md",
+            behavior: IntegrationTargetBehavior::DedicatedFile,
+        }),
+        (IntegrationProvider::Trellis, IntegrationCapability::SpecGuide) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/trellis/guide.md",
+                host_rel: ".trellis/spec/guides/omv-versioning-guide.md",
+                behavior: IntegrationTargetBehavior::DedicatedFile,
+            })
+        }
+        (IntegrationProvider::Trellis, IntegrationCapability::SpecIndexSnippet) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/trellis/index-snippet.md",
+                host_rel: ".trellis/spec/guides/index.md",
+                behavior: IntegrationTargetBehavior::ManagedBlockOnly,
+            })
+        }
+        (IntegrationProvider::Trellis, IntegrationCapability::FinalizeBoundary) => {
+            Some(IntegrationTarget {
+                source_rel: "contract.json",
+                host_rel: ".agents/skills/finish-work/SKILL.md",
+                behavior: IntegrationTargetBehavior::TrellisFinalizeBoundary,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn is_integration_capability_installed(
+    project_root: &Path,
+    provider: IntegrationProvider,
+    capability: IntegrationCapability,
+) -> bool {
+    let Some(target) = integration_target(provider, capability) else {
+        return false;
+    };
+    let host_path = project_root.join(target.host_rel);
+    let Ok(content) = fs::read_to_string(host_path) else {
+        return false;
+    };
+    match target.behavior {
+        IntegrationTargetBehavior::TrellisFinalizeBoundary => {
+            content.contains(adapter::TRELLIS_FINISH_WORK_BLOCK_NAME)
+        }
+        _ => is_omv_managed_integration_content(&content),
+    }
+}
+
+fn check_integration_target_safety(
+    project_root: &Path,
+    target: &IntegrationTarget,
+) -> Result<(), OmvError> {
+    let host_path = project_root.join(target.host_rel);
+    if !host_path.exists() {
+        return Ok(());
+    }
+
+    match target.behavior {
+        IntegrationTargetBehavior::DedicatedFile => {
+            let content = fs::read_to_string(&host_path).unwrap_or_default();
+            if is_omv_managed_integration_content(&content) {
+                Ok(())
+            } else {
+                Err(AdapterError::Conflict {
+                    path: host_path,
+                    reason: String::from("existing integration target is not OMV-managed"),
+                }
+                .into())
+            }
+        }
+        IntegrationTargetBehavior::FullFileOrManagedBlock
+        | IntegrationTargetBehavior::ManagedBlockOnly
+        | IntegrationTargetBehavior::TrellisFinalizeBoundary => Ok(()),
+    }
+}
+
+fn install_integration_target(
+    omv_root: &Path,
+    project_root: &Path,
+    target: &IntegrationTarget,
+    plan: &IntegrationCapabilityPlan,
+) -> Result<crate::core::adapter::AdapterTargetMode, OmvError> {
+    let host_path = project_root.join(target.host_rel);
+
+    match target.behavior {
+        IntegrationTargetBehavior::TrellisFinalizeBoundary => {
+            let existing = fs::read_to_string(&host_path)?;
+            let content = adapter::upsert_trellis_finish_work_finalize_block(&existing);
+            storage::atomic::write_atomically(&host_path, content.as_bytes())?;
+            Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
+        }
+        IntegrationTargetBehavior::ManagedBlockOnly => {
+            let source_path = omv_root.join(adapter::AI_DIR).join(target.source_rel);
+            let rendered = fs::read_to_string(source_path)?;
+            write_integration_managed_block(&host_path, plan, &rendered)?;
+            Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
+        }
+        IntegrationTargetBehavior::DedicatedFile => {
+            let source_path = omv_root.join(adapter::AI_DIR).join(target.source_rel);
+            let rendered = fs::read_to_string(source_path)?;
+            write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
+            Ok(crate::core::adapter::AdapterTargetMode::Materialize)
+        }
+        IntegrationTargetBehavior::FullFileOrManagedBlock => {
+            let source_path = omv_root.join(adapter::AI_DIR).join(target.source_rel);
+            let rendered = fs::read_to_string(source_path)?;
+            if host_path.exists() {
+                let content = fs::read_to_string(&host_path).unwrap_or_default();
+                if is_omv_managed_integration_content(&content) {
+                    write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
+                    Ok(crate::core::adapter::AdapterTargetMode::Materialize)
+                } else {
+                    write_integration_managed_block(&host_path, plan, &rendered)?;
+                    Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
+                }
+            } else {
+                write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
+                Ok(crate::core::adapter::AdapterTargetMode::Materialize)
+            }
+        }
+    }
+}
+
+fn write_integration_managed_file(
+    host_path: &Path,
+    source_rel: &str,
+    rendered: &str,
+) -> Result<(), OmvError> {
+    let content = format!(
+        "<!-- OMV-MANAGED-FILE source=.omv/{}/{} contract={} -->\n{}",
+        adapter::AI_DIR,
+        source_rel,
+        adapter::CONTRACT_VERSION,
+        rendered
+    );
+    storage::atomic::write_atomically(host_path, content.as_bytes())
+}
+
+fn write_integration_managed_block(
+    host_path: &Path,
+    plan: &IntegrationCapabilityPlan,
+    rendered: &str,
+) -> Result<(), OmvError> {
+    let block_name = format!("integration-{}-{}", plan.provider, plan.capability);
+    let begin = format!("{MANAGED_BEGIN_PREFIX}{block_name} -->");
+    let end = format!("{MANAGED_END_PREFIX}{block_name} -->");
+    let block = format!("{begin}\n{rendered}\n{end}\n");
+    let content = match fs::read_to_string(host_path) {
+        Ok(existing) => replace_or_append_integration_block(&existing, &begin, &end, &block),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => block,
+        Err(err) => return Err(err.into()),
+    };
+    storage::atomic::write_atomically(host_path, content.as_bytes())
+}
+
+fn replace_or_append_integration_block(
+    existing: &str,
+    begin: &str,
+    end: &str,
+    replacement: &str,
+) -> String {
+    if let Some(start) = existing.find(begin)
+        && let Some(end_idx) = existing[start..].find(end)
+    {
+        let absolute_end = start + end_idx + end.len();
+        let mut output = String::with_capacity(existing.len() + replacement.len());
+        output.push_str(&existing[..start]);
+        if !output.ends_with('\n') && !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(replacement);
+        if absolute_end < existing.len() {
+            let tail = &existing[absolute_end..];
+            if !tail.starts_with('\n') && !tail.is_empty() {
+                output.push('\n');
+            }
+            output.push_str(tail.trim_start_matches('\n'));
+        }
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        return output;
+    }
+
+    let mut output = existing.trim_end().to_owned();
+    if !output.is_empty() {
+        output.push_str("\n\n");
+    }
+    output.push_str(replacement);
+    if !output.ends_with('\n') {
+        output.push('\n');
+    }
+    output
+}
+
+fn is_omv_managed_integration_content(content: &str) -> bool {
+    content.contains("<!-- OMV-MANAGED-FILE") || content.contains(MANAGED_BEGIN_PREFIX)
+}
+
+fn record_adapter_target(
+    omv_root: &Path,
+    target: &IntegrationTarget,
+    plan: &IntegrationCapabilityPlan,
+    mode: crate::core::adapter::AdapterTargetMode,
+) -> Result<(), OmvError> {
+    let mut registry = storage::adapters::load_adapters_if_exists(omv_root)?;
+    let kind = if plan.provider == "codex" {
+        crate::core::adapter::AdapterKind::Agent
+    } else {
+        crate::core::adapter::AdapterKind::Spec
+    };
+    let adapter_target = OmvAdapterTarget {
+        path: target.host_rel.to_owned(),
+        source_path: format!(".omv/{}/{}", adapter::AI_DIR, target.source_rel),
+        mode,
+    };
+
+    if let Some(installation) = registry
+        .installations
+        .iter_mut()
+        .find(|item| item.kind == kind && item.name == plan.provider)
+    {
+        if let Some(existing) = installation
+            .targets
+            .iter_mut()
+            .find(|item| item.path == adapter_target.path)
+        {
+            *existing = adapter_target;
+        } else {
+            installation.targets.push(adapter_target);
+        }
+        installation.install_mode = derive_integration_install_mode(&installation.targets);
+        installation.source_contract_version = adapter::CONTRACT_VERSION;
+    } else {
+        registry.installations.push(OmvAdapterInstallation {
+            kind,
+            name: plan.provider.clone(),
+            install_mode: derive_integration_install_mode(std::slice::from_ref(&adapter_target)),
+            source_contract_version: adapter::CONTRACT_VERSION,
+            targets: vec![adapter_target],
+        });
+    }
+
+    storage::adapters::save_adapters(omv_root, &registry)
+}
+
+fn derive_integration_install_mode(
+    targets: &[OmvAdapterTarget],
+) -> crate::core::adapter::AdapterInstallMode {
+    if targets
+        .iter()
+        .all(|target| target.mode == crate::core::adapter::AdapterTargetMode::Link)
+    {
+        crate::core::adapter::AdapterInstallMode::Link
+    } else if targets.iter().all(|target| {
+        matches!(
+            target.mode,
+            crate::core::adapter::AdapterTargetMode::Materialize
+                | crate::core::adapter::AdapterTargetMode::ManagedBlock
+        )
+    }) {
+        crate::core::adapter::AdapterInstallMode::Materialize
+    } else {
+        crate::core::adapter::AdapterInstallMode::Hybrid
+    }
+}
+
+fn execute_finalize_boundary(
+    omv_root: &Path,
+    ntp_source: &dyn TimeSource,
+    system_source: &dyn TimeSource,
+    ntp_override: Option<bool>,
+    command: FinalizeBoundaryCommand,
+) -> Result<FinalizeBoundaryExecution, OmvError> {
+    let provider = require_finalize_task_field(command.provider, "provider")?;
+    let boundary = require_finalize_task_field(command.boundary, "boundary")?;
+    let source = finalization::flatten_boundary_source(&provider, &boundary).ok_or_else(|| {
+        FinalizationError::InvalidField {
+            field: String::from("boundary_identity"),
+            value: format!("{provider}/{boundary}"),
+        }
+    })?;
+    let project_root = omv_root.parent().unwrap_or(omv_root);
+    let task_id = resolve_finalize_boundary_task_id(project_root, command.task_id.as_deref())?;
+    let snapshot_hash = workspace_snapshot_hash(project_root, omv_root)?;
+    let fingerprint = format!("finalize-boundary:{task_id}:{source}:{snapshot_hash}");
+
+    let change_type = command
+        .change_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let Some(change_type) = change_type else {
+        return Ok(FinalizeBoundaryExecution {
+            provider,
+            boundary,
+            source,
+            task_id,
+            change_type: None,
+            status: TaskStatus::Done.as_str().to_owned(),
+            tests: TestsStatus::Passed.as_str().to_owned(),
+            fingerprint,
+            workspace_snapshot_hash: snapshot_hash,
+            outcome: String::from("pending"),
+            reason: String::from("manual-action-missing-change-type"),
+            manual_action_required: true,
+            finalize_task: None,
+        });
+    };
+
+    if ChangeType::parse(change_type).is_none() {
+        return Err(FinalizationError::InvalidField {
+            field: String::from("change_type"),
+            value: change_type.to_owned(),
+        }
+        .into());
+    }
+
+    let finalize_task = execute_finalize_task(
+        omv_root,
+        ntp_source,
+        system_source,
+        ntp_override,
+        FinalizeTaskCommand {
+            task_id: Some(task_id.clone()),
+            change_type: Some(change_type.to_owned()),
+            status: Some(TaskStatus::Done.as_str().to_owned()),
+            tests: Some(TestsStatus::Passed.as_str().to_owned()),
+            fingerprint: Some(fingerprint.clone()),
+            source: Some(source.clone()),
+        },
+    )?;
+
+    Ok(FinalizeBoundaryExecution {
+        provider,
+        boundary,
+        source,
+        task_id,
+        change_type: Some(change_type.to_owned()),
+        status: TaskStatus::Done.as_str().to_owned(),
+        tests: TestsStatus::Passed.as_str().to_owned(),
+        fingerprint,
+        workspace_snapshot_hash: snapshot_hash,
+        outcome: finalize_task.outcome.clone(),
+        reason: finalize_task.reason.clone(),
+        manual_action_required: false,
+        finalize_task: Some(finalize_task),
+    })
 }
 
 fn execute_finalize_task(
@@ -836,6 +1892,217 @@ fn require_finalize_task_field(value: Option<String>, field: &str) -> Result<Str
     }
 }
 
+fn resolve_finalize_boundary_task_id(
+    project_root: &Path,
+    explicit: Option<&str>,
+) -> Result<String, OmvError> {
+    if let Some(task_id) = explicit.map(str::trim).filter(|value| !value.is_empty()) {
+        return Ok(task_id.to_owned());
+    }
+
+    let current_task_path = project_root.join(".trellis/.current-task");
+    let current_task_ref = fs::read_to_string(&current_task_path)
+        .map_err(|_| FinalizationError::MissingField(String::from("task_id")))?
+        .trim()
+        .to_owned();
+    if current_task_ref.is_empty() {
+        return Err(FinalizationError::MissingField(String::from("task_id")).into());
+    }
+
+    let task_dir = resolve_trellis_task_ref(project_root, &current_task_ref);
+    let task_json_path = task_dir.join("task.json");
+    if let Ok(content) = fs::read_to_string(&task_json_path)
+        && let Ok(value) = serde_json::from_str::<serde_json::Value>(&content)
+        && let Some(id) = value.get("id").and_then(|id| id.as_str())
+        && !id.trim().is_empty()
+    {
+        return Ok(id.trim().to_owned());
+    }
+
+    task_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .ok_or_else(|| FinalizationError::MissingField(String::from("task_id")).into())
+}
+
+fn resolve_trellis_task_ref(project_root: &Path, task_ref: &str) -> PathBuf {
+    let normalized = task_ref.trim().trim_start_matches("./").replace('\\', "/");
+    let path = PathBuf::from(&normalized);
+    if path.is_absolute() {
+        return path;
+    }
+    if normalized.starts_with(".trellis/") {
+        return project_root.join(path);
+    }
+    if normalized.starts_with("tasks/") {
+        return project_root.join(".trellis").join(path);
+    }
+    project_root.join(".trellis/tasks").join(path)
+}
+
+fn workspace_snapshot_hash(project_root: &Path, omv_root: &Path) -> Result<String, OmvError> {
+    let normalized_paths = snapshot_normalized_paths(project_root, omv_root)?;
+    let mut parts = Vec::new();
+
+    if git_stdout(
+        project_root,
+        &[
+            String::from("rev-parse"),
+            String::from("--is-inside-work-tree"),
+        ],
+    )?
+    .is_none()
+    {
+        parts.push((String::from("git"), b"unavailable".to_vec()));
+        return Ok(stable_hash(parts));
+    }
+
+    let head = git_stdout(
+        project_root,
+        &[String::from("rev-parse"), String::from("HEAD")],
+    )?
+    .unwrap_or_else(|| b"NO_HEAD\n".to_vec());
+    parts.push((String::from("head"), head));
+
+    let mut staged_args = vec![
+        String::from("diff"),
+        String::from("--cached"),
+        String::from("--binary"),
+        String::from("--"),
+        String::from("."),
+    ];
+    append_git_excludes(&mut staged_args, &normalized_paths);
+    let staged = git_stdout(project_root, &staged_args)?.unwrap_or_default();
+    parts.push((String::from("staged"), staged));
+
+    let mut unstaged_args = vec![
+        String::from("diff"),
+        String::from("--binary"),
+        String::from("--"),
+        String::from("."),
+    ];
+    append_git_excludes(&mut unstaged_args, &normalized_paths);
+    let unstaged = git_stdout(project_root, &unstaged_args)?.unwrap_or_default();
+    parts.push((String::from("unstaged"), unstaged));
+
+    let untracked = git_stdout(
+        project_root,
+        &[
+            String::from("ls-files"),
+            String::from("--others"),
+            String::from("--exclude-standard"),
+            String::from("-z"),
+        ],
+    )?
+    .unwrap_or_default();
+    for raw_path in untracked.split(|byte| *byte == 0) {
+        if raw_path.is_empty() {
+            continue;
+        }
+        let rel_path = String::from_utf8_lossy(raw_path).to_string();
+        if normalized_paths.contains(&rel_path) {
+            continue;
+        }
+        let path = project_root.join(&rel_path);
+        if path.is_file() {
+            parts.push((format!("untracked:{rel_path}"), fs::read(path)?));
+        }
+    }
+
+    Ok(stable_hash(parts))
+}
+
+fn snapshot_normalized_paths(
+    project_root: &Path,
+    omv_root: &Path,
+) -> Result<BTreeSet<String>, OmvError> {
+    let mut paths = BTreeSet::new();
+    for rel in [
+        ".omv/state.toml",
+        ".omv/finalizations.toml",
+        ".omv/skills/README.md",
+    ] {
+        paths.insert(rel.to_owned());
+    }
+
+    let targets = load_targets_if_exists(omv_root)?;
+    for target in targets.targets.iter().filter(|target| target.enabled) {
+        insert_project_relative(
+            &mut paths,
+            project_root,
+            &project_root.join(&target.root).join(&target.manifest_path),
+        );
+        insert_project_relative(
+            &mut paths,
+            project_root,
+            &project_root
+                .join(&target.root)
+                .join(&target.runtime_export_path),
+        );
+    }
+    for target in targets
+        .v2_targets
+        .iter()
+        .filter(|target| target.enabled)
+        .filter_map(|target| target.path().map(|path| (&target.root, path)))
+    {
+        insert_project_relative(
+            &mut paths,
+            project_root,
+            &project_root.join(target.0).join(target.1),
+        );
+    }
+
+    Ok(paths)
+}
+
+fn insert_project_relative(paths: &mut BTreeSet<String>, project_root: &Path, path: &Path) {
+    let relative = path.strip_prefix(project_root).unwrap_or(path);
+    paths.insert(relative.to_string_lossy().replace('\\', "/"));
+}
+
+fn append_git_excludes(args: &mut Vec<String>, paths: &BTreeSet<String>) {
+    for path in paths {
+        args.push(format!(":(exclude){path}"));
+    }
+}
+
+fn git_stdout(project_root: &Path, args: &[String]) -> Result<Option<Vec<u8>>, OmvError> {
+    match ProcessCommand::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .args(args)
+        .output()
+    {
+        Ok(output) if output.status.success() => Ok(Some(output.stdout)),
+        Ok(_) => Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn stable_hash(parts: Vec<(String, Vec<u8>)>) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for (label, bytes) in parts {
+        hash = fnv1a(hash, label.as_bytes());
+        hash = fnv1a(hash, &[0]);
+        hash = fnv1a(hash, bytes.len().to_string().as_bytes());
+        hash = fnv1a(hash, &[0]);
+        hash = fnv1a(hash, &bytes);
+        hash = fnv1a(hash, &[0xff]);
+    }
+    format!("{hash:016x}")
+}
+
+fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn upsert_finalization_record(
     finalizations: &mut crate::core::schema::OmvFinalizations,
     record: OmvFinalizationRecord,
@@ -1003,7 +2270,10 @@ fn execute_plan(omv_root: &Path) -> Result<crate::sync::PlanSummary, OmvError> {
     Ok(plan)
 }
 
-fn persist_init_state(omv_root: &Path, draft: &InitDraft) -> Result<(), OmvError> {
+fn persist_init_state(
+    omv_root: &Path,
+    draft: &InitDraft,
+) -> Result<InitPersistenceOutcome, OmvError> {
     std::fs::create_dir_all(omv_root)?;
 
     let mut config = load_config_if_exists(omv_root)?.unwrap_or_default();
@@ -1017,8 +2287,149 @@ fn persist_init_state(omv_root: &Path, draft: &InitDraft) -> Result<(), OmvError
 
     ensure_state_exists(omv_root, &config)?;
     adapter::ensure_canonical_artifacts(omv_root)?;
+    let integrations = persist_and_apply_init_integrations(omv_root, draft)?;
 
-    Ok(())
+    Ok(InitPersistenceOutcome { integrations })
+}
+
+fn persist_and_apply_init_integrations(
+    omv_root: &Path,
+    draft: &InitDraft,
+) -> Result<InitIntegrationOutcome, OmvError> {
+    let project_root = omv_root.parent().unwrap_or(omv_root);
+    let selected_capabilities = draft.selected_integrations();
+    let selected_count = selected_capabilities.len();
+
+    persist_init_integration_state(
+        project_root,
+        omv_root,
+        draft,
+        IntegrationCapabilityStatus::Pending,
+    )?;
+
+    if selected_count == 0 {
+        return Ok(InitIntegrationOutcome {
+            selected_capabilities: 0,
+            status: InitIntegrationApplyStatus::NoSelection,
+            reason: String::new(),
+        });
+    }
+
+    let unsupported = selected_capabilities
+        .iter()
+        .filter(|(provider, capability)| integration_target(*provider, *capability).is_none())
+        .map(|(provider, capability)| format!("{}:{}", provider.as_str(), capability.as_str()))
+        .collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        return Ok(InitIntegrationOutcome {
+            selected_capabilities: selected_count,
+            status: InitIntegrationApplyStatus::Deferred,
+            reason: format!("unsupported-capability:{}", unsupported.join(", ")),
+        });
+    }
+
+    let target_paths = selected_capabilities
+        .iter()
+        .flat_map(|(_, capability)| integration_capability_target_files(*capability))
+        .collect::<Vec<_>>();
+    let dirty_targets = dirty_integration_targets(project_root, &target_paths);
+    if !dirty_targets.is_empty() {
+        return Ok(InitIntegrationOutcome {
+            selected_capabilities: selected_count,
+            status: InitIntegrationApplyStatus::Deferred,
+            reason: format!("unsafe-worktree:{}", dirty_targets.join(", ")),
+        });
+    }
+
+    execute_integrate_apply(omv_root, project_root)?;
+    Ok(InitIntegrationOutcome {
+        selected_capabilities: selected_count,
+        status: InitIntegrationApplyStatus::Applied,
+        reason: String::new(),
+    })
+}
+
+fn persist_init_integration_state(
+    project_root: &Path,
+    omv_root: &Path,
+    draft: &InitDraft,
+    selected_status: IntegrationCapabilityStatus,
+) -> Result<(), OmvError> {
+    let providers = draft
+        .integrations
+        .iter()
+        .map(|provider| {
+            let selected = provider
+                .capabilities
+                .iter()
+                .any(|capability| capability.selected);
+            let detection = detect_integration_provider(project_root, provider.provider);
+            OmvIntegrationProviderState {
+                provider: provider.provider,
+                selected,
+                detection: IntegrationDetectionSnapshot {
+                    detected: detection.detected,
+                    recommended: provider.recommended,
+                },
+                capabilities: provider
+                    .capabilities
+                    .iter()
+                    .map(|capability| OmvIntegrationCapabilityState {
+                        capability: capability.capability,
+                        selected: capability.selected,
+                        status: if capability.selected {
+                            selected_status
+                        } else {
+                            IntegrationCapabilityStatus::Selected
+                        },
+                        failure: None,
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+
+    storage::integrations::save_integrations(
+        omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers,
+        },
+    )
+}
+
+fn dirty_integration_targets(project_root: &Path, target_files: &[String]) -> Vec<String> {
+    if target_files.is_empty() || !project_root.join(".git").exists() {
+        return Vec::new();
+    }
+
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(project_root)
+        .arg("status")
+        .arg("--porcelain")
+        .arg("--")
+        .args(target_files)
+        .output();
+
+    let Ok(output) = output else {
+        return target_files.to_owned();
+    };
+    if !output.status.success() {
+        return target_files.to_owned();
+    }
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let path = line.get(3..)?.trim();
+            if path.is_empty() {
+                None
+            } else {
+                Some(path.to_owned())
+            }
+        })
+        .collect()
 }
 
 fn build_targets_from_draft(draft: &InitDraft) -> OmvTargets {
@@ -1043,6 +2454,7 @@ fn build_targets_from_draft(draft: &InitDraft) -> OmvTargets {
         schema_version: 1,
         targets,
         v2_targets: Vec::new(),
+        unsupported_targets: Vec::new(),
     }
 }
 
@@ -1079,9 +2491,12 @@ fn default_target_paths(language: TargetLanguage) -> (&'static str, &'static str
 mod tests {
     use std::fs;
     use std::path::PathBuf;
+    use std::process::Command as ProcessCommand;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::cli::{AdapterAction, AdapterCommand, FinalizeTaskCommand, OutputMode};
+    use crate::cli::{
+        AdapterAction, AdapterCommand, FinalizeBoundaryCommand, FinalizeTaskCommand, OutputMode,
+    };
     use crate::core::date::LogicalDate;
     use crate::core::finalization::FinalizationOutcome;
     use crate::core::locale::OperatorLocale;
@@ -1094,8 +2509,9 @@ mod tests {
     use crate::ui::state::draft::InitDraft;
 
     use super::{
-        execute_bump, execute_current, execute_finalize_task, execute_sync, persist_init_state,
-        render_help, render_structured_error, render_version, resolve_locale_for_root, run_adapter,
+        execute_bump, execute_current, execute_finalize_boundary, execute_finalize_task,
+        execute_sync, persist_init_state, render_help, render_structured_error, render_version,
+        resolve_finalize_boundary_task_id, resolve_locale_for_root, run_adapter,
     };
 
     struct FixedSource {
@@ -1472,6 +2888,128 @@ mod tests {
     }
 
     #[test]
+    fn finalize_boundary_missing_change_type_returns_pending_without_record() {
+        let root = temp_project_root("boundary-pending");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        write_current_trellis_task(&root, "05-01-example-task", "example-task");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+
+        let execution = execute_finalize_boundary(
+            &omv_root,
+            &ntp,
+            &system,
+            None,
+            FinalizeBoundaryCommand {
+                provider: Some("trellis".to_owned()),
+                boundary: Some("finish-work".to_owned()),
+                task_id: None,
+                change_type: None,
+            },
+        )
+        .expect("missing change type should be pending, not an error");
+
+        assert_eq!(execution.task_id, "example-task");
+        assert_eq!(execution.outcome, "pending");
+        assert!(execution.manual_action_required);
+        assert!(execution.finalize_task.is_none());
+        assert!(!omv_root.join("finalizations.toml").exists());
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn finalize_boundary_resolves_current_task_and_honors_explicit_override() {
+        let root = temp_project_root("boundary-task-resolution");
+        write_current_trellis_task(&root, "05-01-example-task", "example-task");
+
+        let resolved =
+            resolve_finalize_boundary_task_id(&root, None).expect("current task should resolve");
+        let explicit = resolve_finalize_boundary_task_id(&root, Some("override-task"))
+            .expect("explicit task should resolve");
+
+        assert_eq!(resolved, "example-task");
+        assert_eq!(explicit, "override-task");
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn finalize_boundary_duplicate_uses_normalized_workspace_fingerprint() {
+        let root = temp_project_root("boundary-duplicate");
+        init_git_repo(&root);
+        let omv_root = root.join(".omv");
+        let mut draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust]);
+        draft.set_locale(OperatorLocale::EnUs);
+        persist_init_state(&omv_root, &draft).expect("init state should persist");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+        execute_sync(&omv_root).expect("initial sync should create managed outputs");
+        write_current_trellis_task(&root, "05-01-example-task", "example-task");
+        fs::create_dir_all(root.join("src")).expect("src dir should exist");
+        fs::write(root.join("src/lib.rs"), "pub fn changed() {}\n").expect("work file");
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-m", "seed"]);
+        fs::write(
+            root.join("src/lib.rs"),
+            "pub fn changed() -> bool { true }\n",
+        )
+        .expect("work file should update");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let command = FinalizeBoundaryCommand {
+            provider: Some("trellis".to_owned()),
+            boundary: Some("finish-work".to_owned()),
+            task_id: None,
+            change_type: Some("feature".to_owned()),
+        };
+
+        let first = execute_finalize_boundary(&omv_root, &ntp, &system, None, command.clone())
+            .expect("first boundary should finalize");
+        let second = execute_finalize_boundary(&omv_root, &ntp, &system, None, command)
+            .expect("second boundary should be duplicate");
+
+        assert_eq!(first.fingerprint, second.fingerprint);
+        assert_eq!(first.outcome, "bumped");
+        assert_eq!(second.outcome, "bumped");
+        assert!(
+            second
+                .finalize_task
+                .as_ref()
+                .expect("finalize result")
+                .duplicate
+        );
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.build_number, 2);
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
     fn run_adapter_status_json_reports_installed_entries() {
         let root = temp_project_root("adapter-status");
         let omv_root = root.join(".omv");
@@ -1581,6 +3119,37 @@ mod tests {
         if let Some(parent) = root.parent() {
             let _ = fs::remove_dir_all(parent);
         }
+    }
+
+    fn write_current_trellis_task(root: &std::path::Path, dir_name: &str, task_id: &str) {
+        let task_dir = root.join(".trellis/tasks").join(dir_name);
+        fs::create_dir_all(&task_dir).expect("task dir should exist");
+        fs::write(
+            root.join(".trellis/.current-task"),
+            format!(".trellis/tasks/{dir_name}"),
+        )
+        .expect("current task should write");
+        fs::write(
+            task_dir.join("task.json"),
+            format!(r#"{{"id":"{task_id}","title":"Example"}}"#),
+        )
+        .expect("task json should write");
+    }
+
+    fn init_git_repo(root: &std::path::Path) {
+        git(root, &["init"]);
+        git(root, &["config", "user.email", "omv@example.invalid"]);
+        git(root, &["config", "user.name", "OMV Test"]);
+    }
+
+    fn git(root: &std::path::Path, args: &[&str]) {
+        let status = ProcessCommand::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("git should run");
+        assert!(status.success(), "git command failed: {args:?}");
     }
 
     fn finalize_task_command(change_type: &str, fingerprint: &str) -> FinalizeTaskCommand {

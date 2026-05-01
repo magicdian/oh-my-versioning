@@ -37,6 +37,10 @@ fn save_targets(root: &Path, targets: &OmvTargets) -> Result<(), OmvError>;
 fn load_adapters(root: &Path) -> Result<OmvAdapters, OmvError>;
 fn save_adapters(root: &Path, adapters: &OmvAdapters) -> Result<(), OmvError>;
 
+fn load_integrations(root: &Path) -> Result<OmvIntegrations, OmvError>;
+fn load_integrations_if_exists(root: &Path) -> Result<OmvIntegrations, OmvError>;
+fn save_integrations(root: &Path, integrations: &OmvIntegrations) -> Result<(), OmvError>;
+
 fn load_finalizations(root: &Path) -> Result<OmvFinalizations, OmvError>;
 fn load_finalizations_if_exists(root: &Path) -> Result<OmvFinalizations, OmvError>;
 fn save_finalizations(root: &Path, finalizations: &OmvFinalizations) -> Result<(), OmvError>;
@@ -112,13 +116,14 @@ Rules:
 - `strategy` records how the target should behave when the project did not
   exist yet during `omv init`
 - native manifest files are synchronized outputs, not authoritative inputs
-- V1 records remain compatible in Stage 2 and may coexist with V2 records when
-  `schema_version = 2`
+- language-based records remain compatible and may coexist with kind-based
+  records; `schema_version` is internal compatibility metadata, not a
+  user-facing selector
 
-Required V2 shape:
+Required kind-based shape:
 
 ```toml
-schema_version = 2
+schema_version = 1
 
 [[targets]]
 id = "root-version-file"
@@ -132,17 +137,156 @@ mode = "write"
 
 Rules:
 
-- V2 target records use `kind`, not `language`, for generalized targets.
-- Supported V2 kinds are `text-scalar`, `regex-replace`,
-  `markdown-managed-block`, `yaml-scalar`, `c-header-macro`, and
-  `cargo-workspace`.
-- malformed V2 records must fail load with `TargetError::InvalidTargetRecord`
-  before sync writes begin.
+- generalized target records use `kind`, not `language`.
+- Supported kinds are `text-scalar`, `regex-replace`, `markdown-managed-block`,
+  `yaml-scalar`, `c-header-macro`, and `cargo-workspace`.
+- unknown `kind` values must load as unsupported targets, appear in plans with
+  an update-OMV diagnostic, and never execute writes.
+- malformed supported-kind records must fail load with
+  `TargetError::InvalidTargetRecord` before sync writes begin.
 - `yaml-scalar` currently supports simple mapping scalar paths only; sequences,
   anchors, aliases, and block scalars are rejected.
 - `cargo-workspace` supports exact workspace members and one-level `prefix/*`
   member globs. `Cargo.lock` updates are narrow: only matching workspace
   package version lines are updated; OMV does not run `cargo update`.
+
+### Scenario: Kind-Based Target Capability Negotiation
+
+#### 1. Scope / Trigger
+
+- Trigger: adding or changing `.omv/targets.toml` kind-based records,
+  introducing a new target kind, or changing target planning/status output.
+- This is cross-layer because storage parsing feeds `omv plan`,
+  `omv sync --check`, `omv sync`, structured JSON, and contract status mapping.
+
+#### 2. Signatures
+
+```rust
+pub fn load_targets(root: &Path) -> Result<OmvTargets, OmvError>;
+pub fn save_targets(root: &Path, targets: &OmvTargets) -> Result<(), OmvError>;
+pub fn plan_all_targets(project_root: &Path, targets: &OmvTargets, version: &str) -> PlanSummary;
+
+pub struct OmvTargets {
+    pub schema_version: u32,
+    pub targets: Vec<OmvTargetRecord>,
+    pub v2_targets: Vec<OmvV2TargetRecord>,
+    pub unsupported_targets: Vec<OmvUnsupportedTargetRecord>,
+}
+
+pub struct OmvUnsupportedTargetRecord {
+    pub id: String,
+    pub kind: String,
+    pub adapter: String,
+    pub root: String,
+    pub enabled: bool,
+    pub paths: Vec<String>,
+}
+```
+
+#### 3. Contracts
+
+- `schema_version` is internal compatibility metadata. Operators do not select
+  feature sets by changing it.
+- A target table with `kind` and a known `TargetKind` must parse into
+  `OmvV2TargetRecord` and must validate required fields for that kind.
+- A target table with an unknown `kind` must parse into
+  `OmvUnsupportedTargetRecord`, not fail the whole targets file.
+- Enabled unsupported targets must produce a required `PlanStatus::Unsupported`
+  result with no operations and an update-OMV diagnostic.
+- Disabled unsupported targets must produce `PlanStatus::Skipped` and must not
+  block check/apply.
+- `omv sync --check` fails for required unsupported targets and includes the
+  plan in structured error details.
+- `omv sync` must not apply any operation while required unsupported or errored
+  targets exist.
+
+#### 4. Validation & Error Matrix
+
+| Input | Storage result | Plan/check/apply behavior |
+|-------|----------------|---------------------------|
+| `schema_version = 1` with `kind = "text-scalar"` | parse known kind | plan/check/apply normally |
+| no `schema_version` with known `kind` | default `schema_version = 1`, parse known kind | plan/check/apply normally |
+| `schema_version > current` with known `kind` | parse known kind | plan/check/apply normally |
+| unknown enabled `kind` | parse `unsupported_targets` | plan unsupported, check/apply fail without writes |
+| unknown disabled `kind` | parse `unsupported_targets` | plan skipped, check/apply do not block |
+| known `kind` missing required field | `invalid_target_record` | fail before writes |
+| `schema_version = 0` | `invalid_target_record` | fail before planning |
+
+#### 5. Good/Base/Bad Cases
+
+Good:
+
+```toml
+schema_version = 1
+
+[[targets]]
+id = "root-version-file"
+kind = "text-scalar"
+path = "VERSION"
+template = "{version}\n"
+```
+
+Base compatibility:
+
+```toml
+[[targets]]
+id = "workspace-rust"
+language = "rust"
+manifest_path = "Cargo.toml"
+runtime_export_path = "src/generated/version.rs"
+```
+
+Bad but recoverable by updating OMV:
+
+```toml
+[[targets]]
+id = "future-workspace"
+kind = "future-workspace"
+path = "future.toml"
+```
+
+Bad and must fail fast:
+
+```toml
+[[targets]]
+id = "bad-yaml"
+kind = "yaml-scalar"
+path = "component.yml"
+```
+
+#### 6. Tests Required
+
+- storage test: known `kind` loads when `schema_version` is absent or `1`.
+- storage test: unknown `kind` loads into `unsupported_targets`.
+- plan test: unknown enabled `kind` returns `PlanStatus::Unsupported`, no
+  operations, and an update-OMV diagnostic.
+- integration test: mixed known and unknown kind records let `omv plan` report
+  both targets, make `omv sync --check` fail, make `omv sync` fail, and leave
+  target files unwritten.
+- regression test: malformed known-kind records still return
+  `invalid_target_record` before writes.
+
+#### 7. Wrong vs Correct
+
+Wrong: use schema version as the user-visible capability switch and reject the
+whole file before inspecting target records.
+
+```rust
+if schema_version > 2 {
+    return Err(TargetError::InvalidTargetRecord(...).into());
+}
+```
+
+Correct: treat schema version as metadata, parse known kinds, and preserve
+future kinds as unsupported plan entries.
+
+```rust
+if TargetKind::parse(&kind_value).is_some() {
+    targets.v2_targets.push(parse_v2_record(record)?);
+} else {
+    targets.unsupported_targets.push(parse_unsupported_record(record, kind_value)?);
+}
+```
 
 #### `.omv/adapters.toml`
 
@@ -170,6 +314,73 @@ Rules:
 - `omv adapter refresh` must be able to recreate host projections from this file
 - install-mode metadata must describe whether OMV linked, materialized, or
   block-inserted each target
+- this is the legacy compatibility registry during the integration transition;
+  new provider/capability desired state belongs in `.omv/integrations.toml`
+
+#### `.omv/integrations.toml`
+
+Required MVP shape:
+
+```toml
+schema_version = 1
+
+[[providers]]
+id = "codex"
+provider_type = "agent"
+detected = true
+selected = true
+last_detected_at = "1713446400"
+
+[[providers.capabilities]]
+id = "project-instructions"
+selected = true
+status = "installed" # selected, pending, installed, failed
+target_files = ["AGENTS.md"]
+
+[[providers.capabilities]]
+id = "host-skill"
+selected = true
+status = "installed"
+target_files = [".codex/skills/omv-versioning/SKILL.md"]
+
+[[providers]]
+id = "trellis"
+provider_type = "spec"
+detected = true
+selected = true
+last_detected_at = "1713446400"
+
+[[providers.capabilities]]
+id = "finalize-boundary"
+selected = true
+status = "pending"
+target_files = [".agents/skills/finish-work/SKILL.md"]
+
+[providers.capabilities.failure]
+reason_code = "target_file_dirty"
+message = "integration target has existing unreviewed changes"
+```
+
+Rules:
+
+- this file is the canonical host integration desired-state and recovery file
+- records persist selected providers/capabilities plus the last provider-level
+  detection snapshot
+- capability identities are medium-grained: `project-instructions`,
+  `host-skill`, `spec-guide`, `spec-index-snippet`, and `finalize-boundary`
+- MVP supported providers are `codex` and `trellis`; `claude` and `openspec`
+  are future providers and should stay hidden from init UI
+- `codex` may bootstrap lightweight instruction host files
+- `trellis` requires an existing Trellis installation before OMV mutates
+  Trellis files
+- `omv integrate apply` must re-detect before planning/writing
+- failed capabilities keep stable `reason_code` plus a human-readable message
+- best-effort apply preserves successful capability writes but returns non-zero
+  if any selected capability failed
+- host files are derived projections from `.omv/ai/*` and are never authority
+- `.omv/integrations.toml` does not replace `.omv/state.toml`, `.omv/targets.toml`,
+  or `.omv/adapters.toml`; each file owns a distinct domain
+- MVP providers are internal registry descriptors, not a public plugin runtime
 
 #### `.omv/ai/*`
 
@@ -192,6 +403,9 @@ Rules:
   detect drift
 - host files such as `AGENTS.md`, `CLAUDE.md`, or spec guides are derived
   projections of `.omv/ai/*`
+- generated guidance should mention `omv integrate status/apply` and the
+  finalize-boundary helper contract where available
+- generated guidance must not make installed host files authoritative
 - `.omv/ai/*` is generated and may be safely refreshed by OMV
 - `.omv/ai/*` does not replace `.omv/state.toml` as version truth
 
@@ -240,6 +454,12 @@ Rules:
 | stored logical date > validated today | require manual confirmation flow | `TimeError::FutureStoredDate` |
 | targets file malformed | fail before sync | `TargetError::InvalidTargetRecord` |
 | adapters registry malformed | fail adapter status/refresh/install recovery path | `AdapterError::Parse` |
+| integrations file missing during init/status/apply | treat as empty integration state | none |
+| integrations file malformed | fail before detection or host-file writes | `IntegrationError::Parse` |
+| selected integration provider unsupported in MVP | fail or mark failed with stable reason before mutation | `IntegrationError::UnsupportedProvider` |
+| selected capability unsupported by detected provider | fail/mark capability failed before mutation | `IntegrationError::UnsupportedCapability` |
+| integration target file has unsafe existing changes | save desired state, skip write, and report retry/apply guidance | `IntegrationError::UnsafeTarget` |
+| integration apply partially succeeds | persist successful capabilities, record failures, return non-zero | `IntegrationError::PartialFailure` |
 | finalizations file missing during finalize | treat as empty audit state | none |
 | finalizations file malformed | fail finalize before new decision is recorded | `FinalizationError::Parse` |
 | finalize-task required field missing | fail before mutation | `FinalizationError::MissingField` |
@@ -254,6 +474,7 @@ Rules:
 
 - `.omv/config.toml`, `.omv/state.toml`, `.omv/targets.toml`, and
   `.omv/adapters.toml` all parse when present
+- `.omv/integrations.toml` parses when present and defaults to empty when absent
 - stored locale is `zh-CN`
 - stored logical date equals validated today; `build_number` increments
 - `.omv/ai/*` is refreshed before host adapters are projected
@@ -263,8 +484,10 @@ Rules:
 
 - user runs `omv init` in a new directory
 - `.omv/` is created with default config/state plus selected targets
-- later `omv adapter install --agent codex` creates registry metadata and host
-  projections
+- later `omv integrate status` reports selected/detected provider capability
+  state from `.omv/integrations.toml`
+- legacy `omv adapter install --agent codex` remains available for MVP
+  compatibility and creates registry metadata plus host projections
 - later `omv event finalize-task` records either `noop` or `bumped` with a
   fingerprint-backed audit trail
 
@@ -272,6 +495,8 @@ Rules:
 
 - `Cargo.toml` is edited manually but `.omv/state.toml` is not updated
 - `AGENTS.md` is treated as the primary version policy document
+- `.omv/integrations.toml` is ignored and adapter status is used as the only
+  host integration source
 - a repeated finalize call with the same fingerprint bumps twice
 - `omv` must preserve `.omv` as truth and re-sync manifests or host guidance
   from there
@@ -283,15 +508,19 @@ Rules:
 - Future stored date validation test
 - Targets round-trip test with multiple flat entries
 - Adapters registry round-trip test with installed targets
+- Integrations round-trip test with selected providers, capability statuses,
+  detection snapshot, and failure reason
+- Integrations missing-file test proving absent state defaults to empty
+- Integrations malformed-file test proving apply/status fail before writes
 - Finalizations round-trip test with pending/bumped/noop entries
 - Canonical `.omv/ai/*` generation test
 - `omv plan --json` test proving target status output is produced without writes
 - `omv sync --check` success and drift-failure tests proving check mode does
   not mutate targets
-- V2 targets load/save tests for each generalized target kind or a mixed schema
+- kind target load/save tests for each generalized target kind or a mixed
   representative
-- mixed V1/V2 plan, check, sync, and bump tests proving all target kinds use
-  the shared plan engine
+- mixed language/kind plan, check, sync, and bump tests proving all target
+  kinds use the shared plan engine
 - Atomic write test proving original file survives a simulated failure
 - Finalize-task duplicate fingerprint test proving the second call does not bump
 - Finalize-task noop test proving non-semantic changes are audited without
@@ -303,6 +532,8 @@ Assertion points:
 - invalid enum-like values fail with deterministic errors
 - sync code reads targets from `.omv/targets.toml`, not by re-scanning manifests
 - adapter refresh can rebuild host projections from `.omv/adapters.toml`
+- integrate apply re-detects providers and persists capability-level successes
+  and failures
 - finalize-task recovery path syncs current state when a pending fingerprint
   already moved version truth
 
@@ -329,6 +560,9 @@ sync_all_targets(omv_root, &targets, &next)?;
 - Writing manifests first and `.omv` second
 - Using non-atomic writes for `.omv` files
 - Treating `.omv/adapters.toml` as version truth
+- Treating `.omv/adapters.toml` as integration desired state after the MVP
+  transition adds `.omv/integrations.toml`
+- Treating installed host files as integration authority
 - Treating `.omv/finalizations.toml` as version truth instead of audit/dedupe
 - Adding per-language nesting to targets before V1 actually needs monorepo
   structure

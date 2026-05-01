@@ -45,7 +45,13 @@
   "commit": null,
   "pr_url": null,
   "subtasks": [],
-  "children": [],
+  "children": [
+    "05-01-omv-integration-contract-storage",
+    "05-01-omv-integrate-plan-apply",
+    "05-01-omv-init-integration-review",
+    "05-01-omv-finalize-boundary-helper",
+    "05-01-omv-adapter-compat-docs"
+  ],
   "parent": null,
   "relatedFiles": [],
   "notes": "",

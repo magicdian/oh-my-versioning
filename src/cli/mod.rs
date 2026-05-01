@@ -26,6 +26,7 @@ pub enum Command {
     Current,
     Event(EventCommand),
     Adapter(AdapterCommand),
+    Integrate(IntegrateCommand),
     Help,
     Version,
 }
@@ -43,6 +44,7 @@ pub struct EventCommand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventAction {
     FinalizeTask(FinalizeTaskCommand),
+    FinalizeBoundary(FinalizeBoundaryCommand),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -53,6 +55,14 @@ pub struct FinalizeTaskCommand {
     pub tests: Option<String>,
     pub fingerprint: Option<String>,
     pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FinalizeBoundaryCommand {
+    pub provider: Option<String>,
+    pub boundary: Option<String>,
+    pub task_id: Option<String>,
+    pub change_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +78,27 @@ pub enum AdapterAction {
     Refresh,
     List,
     Status,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntegrateCommand {
+    pub action: IntegrateAction,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrateAction {
+    Status,
+    Apply,
+}
+
+impl IntegrateAction {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "status" => Some(Self::Status),
+            "apply" => Some(Self::Apply),
+            _ => None,
+        }
+    }
 }
 
 impl AdapterAction {
@@ -136,6 +167,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
             "current" => command = Command::Current,
             "event" => command = Command::Event(parse_event_command(&mut args)?),
             "adapter" => command = Command::Adapter(parse_adapter_command(&mut args)?),
+            "integrate" => command = Command::Integrate(parse_integrate_command(&mut args)?),
             "version" | "--version" | "-V" => command = Command::Version,
             "help" | "--help" | "-h" => command = Command::Help,
             other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
@@ -198,10 +230,52 @@ fn parse_event_command(args: &mut std::vec::IntoIter<String>) -> Result<EventCom
     let action_value = args.next().ok_or(CliError::MissingEventAction)?;
     let action = match action_value.as_str() {
         "finalize-task" => EventAction::FinalizeTask(parse_finalize_task_command(args)?),
+        "finalize-boundary" => {
+            EventAction::FinalizeBoundary(parse_finalize_boundary_command(args)?)
+        }
         other => return Err(CliError::UnknownEventAction(other.to_owned()).into()),
     };
 
     Ok(EventCommand { action })
+}
+
+fn parse_finalize_boundary_command(
+    args: &mut std::vec::IntoIter<String>,
+) -> Result<FinalizeBoundaryCommand, OmvError> {
+    let mut command = FinalizeBoundaryCommand::default();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--provider" => {
+                command.provider = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--boundary" => {
+                command.boundary = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--task-id" => {
+                command.task_id = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            "--change-type" => {
+                command.change_type = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingEventFieldValue(arg.clone()))?,
+                );
+            }
+            other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
+            other => return Err(CliError::UnknownEventAction(other.to_owned()).into()),
+        }
+    }
+
+    Ok(command)
 }
 
 fn parse_finalize_task_command(
@@ -291,9 +365,28 @@ fn parse_adapter_command(
     })
 }
 
+fn parse_integrate_command(
+    args: &mut std::vec::IntoIter<String>,
+) -> Result<IntegrateCommand, OmvError> {
+    let action_value = args.next().ok_or(CliError::MissingIntegrateAction)?;
+    let action = IntegrateAction::parse(&action_value)
+        .ok_or_else(|| CliError::UnknownIntegrateAction(action_value.clone()))?;
+
+    if let Some(arg) = args.by_ref().next() {
+        if arg.starts_with("--") {
+            return Err(CliError::UnknownOption(arg).into());
+        }
+        return Err(CliError::UnknownIntegrateAction(arg).into());
+    }
+
+    Ok(IntegrateCommand { action })
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::cli::{AdapterAction, Command, EventAction, OutputMode, parse_args};
+    use crate::cli::{
+        AdapterAction, Command, EventAction, IntegrateAction, OutputMode, parse_args,
+    };
     use crate::errors::{CliError, OmvError};
 
     #[test]
@@ -398,6 +491,33 @@ mod tests {
     }
 
     #[test]
+    fn parses_integrate_status_json() {
+        let cli = parse_args(vec![
+            "integrate".to_owned(),
+            "status".to_owned(),
+            "--json".to_owned(),
+        ])
+        .expect("integrate status should parse");
+
+        match cli.command {
+            Command::Integrate(command) => assert_eq!(command.action, IntegrateAction::Status),
+            other => panic!("unexpected command: {other:?}"),
+        }
+        assert_eq!(cli.output_mode, OutputMode::Json);
+    }
+
+    #[test]
+    fn parses_integrate_apply() {
+        let cli = parse_args(vec!["integrate".to_owned(), "apply".to_owned()])
+            .expect("integrate apply should parse");
+
+        match cli.command {
+            Command::Integrate(command) => assert_eq!(command.action, IntegrateAction::Apply),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_unknown_agent_adapter() {
         let err = parse_args(vec![
             "adapter".to_owned(),
@@ -442,6 +562,37 @@ mod tests {
                     assert_eq!(command.fingerprint.as_deref(), Some("task-1:v1"));
                     assert_eq!(command.source.as_deref(), Some("trellis-finish-work"));
                 }
+                other => panic!("unexpected event action: {other:?}"),
+            },
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_event_finalize_boundary_with_helper_fields() {
+        let cli = parse_args(vec![
+            "event".to_owned(),
+            "finalize-boundary".to_owned(),
+            "--provider".to_owned(),
+            "trellis".to_owned(),
+            "--boundary".to_owned(),
+            "finish-work".to_owned(),
+            "--task-id".to_owned(),
+            "task-1".to_owned(),
+            "--change-type".to_owned(),
+            "feature".to_owned(),
+        ])
+        .expect("event finalize-boundary should parse");
+
+        match cli.command {
+            Command::Event(event) => match event.action {
+                EventAction::FinalizeBoundary(command) => {
+                    assert_eq!(command.provider.as_deref(), Some("trellis"));
+                    assert_eq!(command.boundary.as_deref(), Some("finish-work"));
+                    assert_eq!(command.task_id.as_deref(), Some("task-1"));
+                    assert_eq!(command.change_type.as_deref(), Some("feature"));
+                }
+                other => panic!("unexpected event action: {other:?}"),
             },
             other => panic!("unexpected command: {other:?}"),
         }

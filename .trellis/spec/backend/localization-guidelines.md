@@ -81,6 +81,13 @@ Rules:
   keys, not localized copy
 - `.omv/ai/instructions.md` and adapter source templates are canonical OMV
   contract artifacts, not operator locale surfaces
+- integration provider/capability IDs such as `codex`, `trellis`,
+  `project-instructions`, and `finalize-boundary` are contract identifiers and
+  must not be localized in JSON or persisted TOML
+- text output for `omv integrate status/apply`, init integration review, and
+  finalize-boundary pending/manual-action messages must use catalog keys
+- failure reason codes are stable machine identifiers; accompanying display
+  messages and recovery hints are localized at the command/UI boundary
 
 ### 4. Validation & Error Matrix
 
@@ -151,6 +158,9 @@ Use stable dotted keys grouped by feature, for example:
 
 - `cli.help.title`
 - `cli.bump.success`
+- `cli.integrate.status.header`
+- `cli.integrate.apply.partial_failure`
+- `init.integration.review.title`
 - `init.language.detected`
 - `menu.footer.exit`
 

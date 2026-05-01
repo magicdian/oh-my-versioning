@@ -10,6 +10,7 @@ pub enum OmvError {
     Adapter(AdapterError),
     Config(ConfigError),
     Finalization(FinalizationError),
+    Integration(IntegrationError),
     State(StateError),
     Time(TimeError),
     Ntp(NtpError),
@@ -26,6 +27,7 @@ impl Display for OmvError {
             Self::Adapter(err) => write!(f, "{err}"),
             Self::Config(err) => write!(f, "{err}"),
             Self::Finalization(err) => write!(f, "{err}"),
+            Self::Integration(err) => write!(f, "{err}"),
             Self::State(err) => write!(f, "{err}"),
             Self::Time(err) => write!(f, "{err}"),
             Self::Ntp(err) => write!(f, "{err}"),
@@ -57,6 +59,8 @@ pub enum CliError {
     MissingEventFieldValue(String),
     MissingAdapterAction,
     UnknownAdapterAction(String),
+    MissingIntegrateAction,
+    UnknownIntegrateAction(String),
     MissingAgentValue,
     MissingSpecValue,
     UnknownAgentAdapter(String),
@@ -79,6 +83,10 @@ impl Display for CliError {
             }
             Self::MissingAdapterAction => write!(f, "missing adapter action after `adapter`"),
             Self::UnknownAdapterAction(action) => write!(f, "unknown adapter action: {action}"),
+            Self::MissingIntegrateAction => write!(f, "missing action after `integrate`"),
+            Self::UnknownIntegrateAction(action) => {
+                write!(f, "unknown integrate action: {action}")
+            }
             Self::MissingAgentValue => write!(f, "missing value after --agent"),
             Self::MissingSpecValue => write!(f, "missing value after --spec"),
             Self::UnknownAgentAdapter(name) => write!(f, "unknown agent adapter: {name}"),
@@ -204,6 +212,35 @@ impl std::error::Error for FinalizationError {}
 impl From<FinalizationError> for OmvError {
     fn from(value: FinalizationError) -> Self {
         Self::Finalization(value)
+    }
+}
+
+#[derive(Debug)]
+pub enum IntegrationError {
+    Parse { path: PathBuf, reason: String },
+    ApplyFailed { reason: String, result: Box<Value> },
+}
+
+impl Display for IntegrationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Parse { path, reason } => {
+                write!(
+                    f,
+                    "failed to parse integrations {}: {reason}",
+                    path.display()
+                )
+            }
+            Self::ApplyFailed { reason, .. } => write!(f, "integration apply failed: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for IntegrationError {}
+
+impl From<IntegrationError> for OmvError {
+    fn from(value: IntegrationError) -> Self {
+        Self::Integration(value)
     }
 }
 
@@ -394,6 +431,8 @@ impl OmvError {
             Self::Cli(CliError::MissingEventFieldValue(_)) => "missing_event_field_value",
             Self::Cli(CliError::MissingAdapterAction) => "missing_adapter_action",
             Self::Cli(CliError::UnknownAdapterAction(_)) => "unknown_adapter_action",
+            Self::Cli(CliError::MissingIntegrateAction) => "missing_integrate_action",
+            Self::Cli(CliError::UnknownIntegrateAction(_)) => "unknown_integrate_action",
             Self::Cli(CliError::MissingAgentValue) => "missing_agent_value",
             Self::Cli(CliError::MissingSpecValue) => "missing_spec_value",
             Self::Cli(CliError::UnknownAgentAdapter(_)) => "unknown_agent_adapter",
@@ -414,6 +453,8 @@ impl OmvError {
             Self::Finalization(FinalizationError::InvalidField { .. }) => {
                 "invalid_finalization_field"
             }
+            Self::Integration(IntegrationError::Parse { .. }) => "integrations_parse_failed",
+            Self::Integration(IntegrationError::ApplyFailed { .. }) => "integration_apply_failed",
             Self::State(StateError::Parse { .. }) => "state_parse_failed",
             Self::State(StateError::MissingState { .. }) => "missing_state",
             Self::Time(TimeError::InvalidDateFormat(_)) => "invalid_date_format",
@@ -460,6 +501,9 @@ impl OmvError {
             Self::Cli(CliError::UnknownAdapterAction(action)) => {
                 map.insert(String::from("action"), Value::String(action.clone()));
             }
+            Self::Cli(CliError::UnknownIntegrateAction(action)) => {
+                map.insert(String::from("action"), Value::String(action.clone()));
+            }
             Self::Cli(CliError::UnknownAgentAdapter(name)) => {
                 map.insert(String::from("agent"), Value::String(name.clone()));
             }
@@ -494,6 +538,7 @@ impl OmvError {
             }
             Self::Config(ConfigError::Parse { path, reason })
             | Self::Finalization(FinalizationError::Parse { path, reason })
+            | Self::Integration(IntegrationError::Parse { path, reason })
             | Self::State(StateError::Parse { path, reason })
             | Self::Target(TargetError::Parse { path, reason }) => {
                 map.insert(
@@ -517,6 +562,10 @@ impl OmvError {
             Self::Finalization(FinalizationError::InvalidField { field, value }) => {
                 map.insert(String::from("field"), Value::String(field.clone()));
                 map.insert(String::from("value"), Value::String(value.clone()));
+            }
+            Self::Integration(IntegrationError::ApplyFailed { reason, result }) => {
+                map.insert(String::from("reason"), Value::String(reason.clone()));
+                map.insert(String::from("result"), (**result).clone());
             }
             Self::Time(TimeError::InvalidDateFormat(value)) => {
                 map.insert(String::from("value"), Value::String(value.clone()));

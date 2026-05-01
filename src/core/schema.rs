@@ -70,6 +70,7 @@ pub struct OmvTargets {
     pub schema_version: u32,
     pub targets: Vec<OmvTargetRecord>,
     pub v2_targets: Vec<OmvV2TargetRecord>,
+    pub unsupported_targets: Vec<OmvUnsupportedTargetRecord>,
 }
 
 impl Default for OmvTargets {
@@ -78,6 +79,7 @@ impl Default for OmvTargets {
             schema_version: 1,
             targets: Vec::new(),
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         }
     }
 }
@@ -105,6 +107,16 @@ impl OmvTargetRecord {
             enabled: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OmvUnsupportedTargetRecord {
+    pub id: String,
+    pub kind: String,
+    pub adapter: String,
+    pub root: String,
+    pub enabled: bool,
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

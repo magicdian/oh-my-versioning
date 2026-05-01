@@ -14,6 +14,8 @@ remote control plane. The backend is responsible for:
 - NTP-backed time validation without changing system time
 - target synchronization into language-native manifests and runtime exports
 - adapter projection from `.omv/ai/*` into agent/spec host frameworks
+- platformized host integration state, provider capabilities, and safe
+  plan/apply orchestration
 - structured JSON output for automation-safe reads and writes
 - localized CLI/TUI output driven by shared i18n catalogs
 
@@ -56,10 +58,18 @@ Also read:
 - `.omv/` is the only source of truth; language-native manifests are derived
   outputs.
 - V1 stores configuration, mutable state, and targets in separate TOML files.
-- V1 also stores adapter installation state in `.omv/adapters.toml`.
-- `.omv/ai/*` is the canonical integration surface projected into agent/spec
-  hosts.
+- V1 stores legacy adapter projection recovery state in `.omv/adapters.toml`.
+- MVP host integration selection, detection snapshots, capability status, and
+  failure recovery live in `.omv/integrations.toml`.
+- `.omv/ai/*` is the canonical generated guidance surface projected into
+  agent/spec hosts; installed host files are derived outputs.
+- `omv integrate status/apply` is the forward command family for provider and
+  capability workflows. Existing `omv adapter install/refresh/list/status`
+  commands remain temporary MVP compatibility commands where behavior overlaps.
 - `.omv/targets.toml` uses a flat target list in V1.
+- MVP integration providers are internal registry entries, not a public plugin
+  runtime. Codex and Trellis are the supported MVP providers; Claude and
+  OpenSpec remain outside the init UI support matrix.
 - i18n is mandatory for CLI and init TUI from the first implementation.
 - machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system

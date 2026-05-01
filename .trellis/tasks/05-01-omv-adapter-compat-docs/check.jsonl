@@ -1,0 +1,12 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Check docs against parent decisions"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Review architecture doc update"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Review persistence docs"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Review error docs"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Review quality docs"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Review init UI docs"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Review init state docs"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review cross-layer guide"}
+{"file": "src/adapter.rs", "reason": "Review generated AI contract/instruction changes"}

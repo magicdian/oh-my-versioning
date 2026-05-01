@@ -6,8 +6,8 @@ use toml::value::Table;
 
 use crate::core::schema::{
     CHeaderMacroTarget, CargoWorkspaceTarget, MarkdownManagedBlockTarget, OmvTargetRecord,
-    OmvTargets, OmvV2TargetConfig, OmvV2TargetRecord, RegexReplaceTarget, TextScalarTarget,
-    YamlScalarTarget,
+    OmvTargets, OmvUnsupportedTargetRecord, OmvV2TargetConfig, OmvV2TargetRecord,
+    RegexReplaceTarget, TextScalarTarget, YamlScalarTarget,
 };
 use crate::core::target::{
     CargoLockfileStrategy, CargoMembers, CargoVersionLocation, CargoVersionPolicy,
@@ -44,7 +44,7 @@ pub fn load_targets(root: &Path) -> Result<OmvTargets, OmvError> {
     })?;
 
     let schema_version = optional_u32(table, "schema_version")?.unwrap_or(1);
-    if schema_version == 0 || schema_version > 2 {
+    if schema_version == 0 {
         return Err(TargetError::InvalidTargetRecord(format!(
             "unsupported targets schema_version: {schema_version}"
         ))
@@ -55,6 +55,7 @@ pub fn load_targets(root: &Path) -> Result<OmvTargets, OmvError> {
         schema_version,
         targets: Vec::new(),
         v2_targets: Vec::new(),
+        unsupported_targets: Vec::new(),
     };
 
     let Some(records) = table.get("targets") else {
@@ -70,7 +71,14 @@ pub fn load_targets(root: &Path) -> Result<OmvTargets, OmvError> {
         })?;
 
         if record.contains_key("kind") {
-            targets.v2_targets.push(parse_v2_record(record)?);
+            let kind_value = required_string(record, "kind")?;
+            if TargetKind::parse(&kind_value).is_some() {
+                targets.v2_targets.push(parse_v2_record(record)?);
+            } else {
+                targets
+                    .unsupported_targets
+                    .push(parse_unsupported_record(record, kind_value)?);
+            }
         } else {
             targets.targets.push(parse_v1_record(record)?);
         }
@@ -81,7 +89,8 @@ pub fn load_targets(root: &Path) -> Result<OmvTargets, OmvError> {
 
 pub fn save_targets(root: &Path, targets: &OmvTargets) -> Result<(), OmvError> {
     let path = path_for(root);
-    let schema_version = if targets.v2_targets.is_empty() {
+    let schema_version = if targets.v2_targets.is_empty() && targets.unsupported_targets.is_empty()
+    {
         targets.schema_version
     } else {
         2
@@ -161,6 +170,19 @@ pub fn save_targets(root: &Path, targets: &OmvTargets) -> Result<(), OmvError> {
                 ));
                 content.push_str(&format!("lockfile = \"{}\"\n", config.lockfile.as_str()));
             }
+        }
+        content.push('\n');
+    }
+
+    for record in &targets.unsupported_targets {
+        content.push_str("[[targets]]\n");
+        content.push_str(&format!("id = \"{}\"\n", escape_toml(&record.id)));
+        content.push_str(&format!("kind = \"{}\"\n", escape_toml(&record.kind)));
+        content.push_str(&format!("adapter = \"{}\"\n", escape_toml(&record.adapter)));
+        content.push_str(&format!("root = \"{}\"\n", escape_toml(&record.root)));
+        content.push_str(&format!("enabled = {}\n", record.enabled));
+        for path in &record.paths {
+            content.push_str(&format!("path = \"{}\"\n", escape_toml(path)));
         }
         content.push('\n');
     }
@@ -302,6 +324,27 @@ fn parse_v2_record(record: &Table) -> Result<OmvV2TargetRecord, OmvError> {
     })
 }
 
+fn parse_unsupported_record(
+    record: &Table,
+    kind: String,
+) -> Result<OmvUnsupportedTargetRecord, OmvError> {
+    let id = required_string(record, "id")?;
+    let adapter = optional_string(record, "adapter")?.unwrap_or_else(|| String::from("unknown"));
+    let root = optional_string(record, "root")?.unwrap_or_else(|| String::from("."));
+    let paths = optional_string(record, "path")?
+        .map(|path| vec![path])
+        .unwrap_or_default();
+
+    Ok(OmvUnsupportedTargetRecord {
+        id,
+        kind,
+        adapter,
+        root,
+        enabled: optional_bool(record, "enabled")?.unwrap_or(true),
+        paths,
+    })
+}
+
 fn required_string(record: &Table, key: &str) -> Result<String, OmvError> {
     optional_string(record, key)?.ok_or_else(|| {
         TargetError::InvalidTargetRecord(format!("missing required target field: {key}")).into()
@@ -410,6 +453,7 @@ mod tests {
             schema_version: 1,
             targets: vec![rust_target, python_target],
             v2_targets: Vec::new(),
+            unsupported_targets: Vec::new(),
         };
 
         save_targets(&root, &targets).expect("targets should save");
@@ -438,6 +482,7 @@ mod tests {
                     template: "{version}\n".to_owned(),
                 }),
             }],
+            unsupported_targets: Vec::new(),
         };
 
         save_targets(&root, &targets).expect("targets should save");
@@ -458,6 +503,41 @@ mod tests {
 
         let err = load_targets(&root).expect_err("missing key should fail");
         assert_eq!(err.code(), "invalid_target_record");
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn kind_targets_load_without_schema_v2_gate() {
+        let root = temp_omv_root("targets-kind-no-schema-gate");
+        fs::write(
+            root.join("targets.toml"),
+            "[[targets]]\nid = \"root-version-file\"\nkind = \"text-scalar\"\npath = \"VERSION\"\ntemplate = \"{version}\\n\"\n",
+        )
+        .expect("target fixture should write");
+
+        let loaded = load_targets(&root).expect("kind target should load without schema_version");
+        assert_eq!(loaded.schema_version, 1);
+        assert_eq!(loaded.v2_targets.len(), 1);
+        assert!(loaded.unsupported_targets.is_empty());
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn unknown_kind_loads_as_unsupported_target() {
+        let root = temp_omv_root("targets-unknown-kind");
+        fs::write(
+            root.join("targets.toml"),
+            "schema_version = 99\n\n[[targets]]\nid = \"future-workspace\"\nkind = \"future-workspace\"\npath = \"future.toml\"\n",
+        )
+        .expect("target fixture should write");
+
+        let loaded = load_targets(&root).expect("unknown kind should not block target loading");
+        assert_eq!(loaded.schema_version, 99);
+        assert_eq!(loaded.unsupported_targets.len(), 1);
+        assert_eq!(loaded.unsupported_targets[0].kind, "future-workspace");
+        assert_eq!(loaded.unsupported_targets[0].paths, vec!["future.toml"]);
 
         cleanup_root(&root);
     }

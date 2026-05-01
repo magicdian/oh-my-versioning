@@ -32,6 +32,9 @@ bugs.
 - viewport guard tests
 - locale rendering tests for English and Chinese
 - init flow tests for auto-detected languages and manual toggles
+- init integration review tests for provider/capability defaults,
+  finalize-boundary recommendation, explicit toggle-off, target-file display,
+  and safe vs unsafe automatic apply handoff
 - pre-project strategy popup tests
 - choice-list popup tests proving selected item remains visible when scrolling
 
@@ -41,4 +44,8 @@ bugs.
 - Are toggles using `Space` only?
 - Are strings catalog-driven?
 - Is draft state separate from persisted state?
+- Are integration provider/capability selections separate from language target
+  selections?
+- Does the UI display integration apply/safety results without owning provider
+  detection or file mutation?
 - Do popup flows match the documented close/confirm behavior?

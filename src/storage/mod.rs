@@ -6,6 +6,7 @@ pub mod adapters;
 pub mod atomic;
 pub mod config;
 pub mod finalizations;
+pub mod integrations;
 pub mod state;
 pub mod targets;
 
@@ -15,6 +16,7 @@ pub const STATE_FILE: &str = "state.toml";
 pub const TARGETS_FILE: &str = "targets.toml";
 pub const ADAPTERS_FILE: &str = "adapters.toml";
 pub const FINALIZATIONS_FILE: &str = "finalizations.toml";
+pub const INTEGRATIONS_FILE: &str = "integrations.toml";
 
 pub fn resolve_project_root(cwd: &Path) -> Result<PathBuf, OmvError> {
     let absolute = cwd

@@ -160,6 +160,22 @@ impl FinalizationDecision {
     }
 }
 
+pub fn is_valid_boundary_identity_part(value: &str) -> bool {
+    let trimmed = value.trim();
+    !trimmed.is_empty()
+        && trimmed
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+pub fn flatten_boundary_source(provider: &str, boundary: &str) -> Option<String> {
+    if !is_valid_boundary_identity_part(provider) || !is_valid_boundary_identity_part(boundary) {
+        return None;
+    }
+
+    Some(format!("{}-{}", provider.trim(), boundary.trim()))
+}
+
 pub fn decide(
     change_type: ChangeType,
     task_status: TaskStatus,
@@ -228,5 +244,14 @@ mod tests {
         let decision = decide(ChangeType::Docs, TaskStatus::Done, TestsStatus::Passed);
         assert_eq!(decision.outcome, FinalizationOutcome::NoOp);
         assert_eq!(decision.reason, FinalizationReason::NonSemanticChange);
+    }
+
+    #[test]
+    fn boundary_source_flattens_structured_identity() {
+        assert_eq!(
+            super::flatten_boundary_source("trellis", "finish-work").as_deref(),
+            Some("trellis-finish-work")
+        );
+        assert!(super::flatten_boundary_source("trellis", "finish work").is_none());
     }
 }

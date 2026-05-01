@@ -55,6 +55,30 @@ settings:
 
 These rows open choice popups on `Enter`. They must not toggle on `Space`.
 
+## Init Integration Review
+
+`omv init` must include a review/confirm step for host integrations before
+automatic installation is attempted.
+
+Review rows should show:
+
+- provider identity (`codex`, `trellis`)
+- detection/recommendation state
+- selected capability identifiers
+- affected target files per capability
+
+Use menuconfig semantics:
+
+- provider/capability enablement rows are toggle rows; `Space` toggles
+- detail rows that show target files use `--->` and open read-only detail
+  popups on `Enter`
+- the final apply/continue action is explicit and follows the existing confirm
+  flow
+
+The screen must consume typed detection/plan data from backend orchestration.
+Render code must not inspect the filesystem, decide bootstrap policy, or write
+host files.
+
 ## Accessibility
 
 For terminal UI, accessibility means predictable keyboard semantics and readable
