@@ -302,3 +302,36 @@ Implemented protobuf-backed OMV contract registry, deterministic plan/check/sync
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Platformized host integrations
+
+**Date**: 2026-05-02
+**Task**: Platformized host integrations
+**Branch**: `dev`
+
+### Summary
+
+Implemented platformized host integrations with provider/capability state, integrate status/apply flow, finalize-boundary helper, kind-based target capability handling, executable specs, and full fmt/test/clippy validation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `93ebb74` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
