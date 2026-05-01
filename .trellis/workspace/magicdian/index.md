@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
-- **Last Active**: 2026-04-18
+- **Total Sessions**: 7
+- **Last Active**: 2026-05-01
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~270 | Active |
+| `journal-1.md` | ~304 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-05-01 | OMV contract architecture and generalized targets | `a7a3ae8`, `94486e7` | `dev` |
 | 6 | 2026-04-18 | Brainstorm platformized host integrations and finalize boundary | - | `dev` |
 | 5 | 2026-04-18 | Finalize-task automation and OMV self-host setup | `f4e3042`, `3926f42` | `dev` |
 | 4 | 2026-04-15 | Complete Trellis v0.4.0 migration task | `621db6d` | `dev` |

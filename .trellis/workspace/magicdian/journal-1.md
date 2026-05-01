@@ -268,3 +268,37 @@ Captured the MVP product boundary for platformized host integrations, init/apply
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: OMV contract architecture and generalized targets
+
+**Date**: 2026-05-01
+**Task**: OMV contract architecture and generalized targets
+**Branch**: `dev`
+
+### Summary
+
+Implemented protobuf-backed OMV contract registry, deterministic plan/check/sync flow, generalized V2 target adapters, architecture docs, and code-spec updates. Verified cargo fmt, full tests, and clippy.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a7a3ae8` | (see git log) |
+| `94486e7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
