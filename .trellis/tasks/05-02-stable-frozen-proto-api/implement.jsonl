@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "contract module and proto codegen boundaries"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "backend tests and protobuf contract quality gate"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "contract version crosses proto registry build and automation surfaces"}

@@ -365,6 +365,9 @@ Stage 1 introduces protobuf code generation.
 Rules:
 
 - Use `build.rs` with Rust protobuf code generation, likely `prost-build`.
+- Compile `proto/omv/contract/versions/current/*.proto` for source builds.
+- Keep numbered directories under `proto/omv/contract/versions/` as frozen API
+  snapshots.
 - Do not commit generated Rust code.
 - Do not manually edit generated code.
 - Treat `protoc` as an OMV developer and source-build dependency, not an
@@ -381,7 +384,7 @@ checked into the repository.
 Layering:
 
 ```text
-proto/omv/contract/v1/*.proto
+proto/omv/contract/versions/current/*.proto
         |
         v
 build.rs / codegen
@@ -399,8 +402,22 @@ handwritten Rust implementation
 ```
 
 The generated layer must not contain OMV business logic. If contract behavior
-changes, update `.proto`, handwritten implementation, and tests, then
-regenerate during build.
+changes, update `versions/current/*.proto`, freeze a new numbered snapshot,
+update handwritten implementation and tests, then regenerate during build.
+
+Stable/frozen API rules:
+
+- `versions/current/contract.proto` is the editable latest contract.
+- `versions/<n>/contract.proto` files are frozen snapshots.
+- after a release or bootstrap, `current` must match the newest frozen
+  snapshot.
+- `src/contract/registry.rs::CONTRACT_VERSION` must match the newest frozen
+  snapshot compiled into the binary.
+- protobuf field tags and enum numeric values must not be reused; removed
+  fields or enum values must be reserved.
+- version 1 is the original language-native target contract.
+- version 2 is the current runtime contract, including generalized target kinds
+  and host integration capability metadata.
 
 ## Compatibility Domains
 
@@ -452,7 +469,7 @@ deterministic target planning and protobuf-backed capability contracts.
 
 Subtasks:
 
-1. Define OMV contract proto v1.
+1. Define OMV contract proto and stable/frozen snapshot rules.
 2. Add build-time protobuf code generation.
 3. Add contract registry and capability reporting.
 4. Introduce target adapter trait and plan model.

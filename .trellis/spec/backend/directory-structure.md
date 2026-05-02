@@ -61,8 +61,14 @@ resources/
     └── zh-CN.toml
 
 proto/
-└── omv/contract/v1/
-    └── contract.proto       # protobuf source for contract v1 generated Rust stubs
+└── omv/contract/versions/
+    ├── README.md
+    ├── current/
+    │   └── contract.proto   # editable latest protobuf contract source
+    ├── 1/
+    │   └── contract.proto   # frozen language-native target contract snapshot
+    └── 2/
+        └── contract.proto   # frozen current runtime contract snapshot
 
 tests/
 ├── cli/
@@ -134,10 +140,135 @@ the same plan model.
 
 ### Rule: Keep generated contract code behind `src/contract/`
 
-`proto/omv/contract/v1/*.proto` is compiled by `build.rs` into `OUT_DIR`.
-Generated Rust code is included from `src/contract/mod.rs`, is not committed,
-and must not contain handwritten business logic. Capability registration and
-domain mapping live in handwritten Rust under `src/contract/`.
+`proto/omv/contract/versions/current/*.proto` is compiled by `build.rs` into
+`OUT_DIR`. Numbered directories under `proto/omv/contract/versions/` are frozen
+contract snapshots and must not be mutated after release. Generated Rust code is
+included from `src/contract/mod.rs`, is not committed, and must not contain
+handwritten business logic. Capability registration and domain mapping live in
+handwritten Rust under `src/contract/`.
+
+## Scenario: Stable/Frozen Protobuf Contract Snapshots
+
+### 1. Scope / Trigger
+
+- Trigger: adding, removing, renaming, or changing protobuf contract fields,
+  enum values, generated contract paths, `CONTRACT_VERSION`, or build-time
+  protobuf compilation.
+- This is cross-layer because `build.rs` feeds generated Rust, generated Rust
+  feeds `src/contract/registry.rs`, registry values feed plan/capability JSON,
+  and frozen snapshots define compatibility boundaries for future migrations.
+
+### 2. Signatures
+
+```rust
+// build.rs
+prost_build::Config::new().compile_protos(
+    &["proto/omv/contract/versions/current/contract.proto"],
+    &["proto"],
+)?;
+
+// src/contract/mod.rs
+include!(concat!(env!("OUT_DIR"), "/omv.contract.v1.rs"));
+
+// src/contract/registry.rs
+pub const CONTRACT_VERSION: u32 = <newest frozen version>;
+pub const STRUCTURED_JSON_CONTRACT_VERSION: &str = "1";
+
+impl CapabilityRegistry {
+    pub fn generated_capability_set(&self) -> OmvCapabilitySet;
+}
+```
+
+### 3. Contracts
+
+- `proto/omv/contract/versions/current/contract.proto` is the editable latest
+  contract source compiled by `build.rs`.
+- `proto/omv/contract/versions/<n>/contract.proto` files are frozen snapshots.
+- After bootstrap or release, `versions/current/contract.proto` must be
+  byte-for-byte identical to the highest numbered frozen snapshot.
+- `src/contract/registry.rs::CONTRACT_VERSION` must equal the highest numbered
+  frozen snapshot compiled into the binary.
+- Protobuf package naming may stay `omv.contract.v1` across snapshot numbers
+  until the generated Rust namespace itself needs a breaking change.
+- `STRUCTURED_JSON_CONTRACT_VERSION` and `adapter::CONTRACT_VERSION` are
+  separate compatibility domains and must not be bumped just because the
+  protobuf contract snapshot changes.
+- Removed protobuf fields or enum values must be marked `reserved` in future
+  snapshots. Do not reuse numeric tags or enum values.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| `current` differs from newest frozen snapshot after release/bootstrap | unit test fails |
+| `CONTRACT_VERSION` differs from newest frozen snapshot number | unit test fails |
+| additive proto change in development | update `current`, then freeze a new numbered snapshot before merge/release |
+| removed field or enum value | reserve the numeric tag/value in the next snapshot |
+| change only affects structured JSON envelope | update JSON contract/version docs, not protobuf snapshot by default |
+| change only affects `.omv/*.toml` storage | update storage schema docs, not protobuf snapshot by default |
+
+### 5. Good/Base/Bad Cases
+
+Good:
+
+```text
+proto/omv/contract/versions/current/contract.proto
+proto/omv/contract/versions/3/contract.proto
+src/contract/registry.rs::CONTRACT_VERSION = 3
+```
+
+Base:
+
+```text
+current == versions/2
+CONTRACT_VERSION == 2
+STRUCTURED_JSON_CONTRACT_VERSION == "1"
+adapter::CONTRACT_VERSION == 1
+```
+
+Bad:
+
+```text
+current has an added enum value, newest frozen snapshot is still versions/2,
+and CONTRACT_VERSION remains 2.
+```
+
+### 6. Tests Required
+
+- unit test: read `proto/omv/contract/versions/current/contract.proto` and the
+  highest numeric `versions/<n>/contract.proto`; assert byte-for-byte equality.
+- unit test: assert the highest numeric frozen directory equals
+  `src/contract/registry.rs::CONTRACT_VERSION`.
+- boundary test: assert frozen v1 excludes generalized target-kind and host
+  integration capabilities.
+- boundary test: assert frozen v2 includes generalized target-kind capabilities
+  and host integration capability metadata.
+- build test: `cargo test --all-targets --all-features` must compile generated
+  Rust from `versions/current`.
+
+Assertion points:
+
+- generated `OmvCapabilitySet.contract_version`
+- presence/absence of stable enum names in frozen snapshots
+- `OmvCapabilitySet.integration_support = 6` remains in the v2/current
+  snapshot until a future v3 supersedes it
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+Edit proto/omv/contract/versions/2/contract.proto directly for a new
+capability and leave current plus CONTRACT_VERSION unchanged.
+```
+
+#### Correct
+
+```text
+Edit proto/omv/contract/versions/current/contract.proto, copy it to
+proto/omv/contract/versions/3/contract.proto at the freeze point, then set
+src/contract/registry.rs::CONTRACT_VERSION = 3 and update guard tests/docs.
+```
 
 ### Rule: Keep AI/spec adapter projection separate from language sync
 

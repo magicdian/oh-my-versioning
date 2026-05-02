@@ -9,7 +9,7 @@ use crate::core::integration::{
 };
 use crate::core::target::{TargetKind, TargetLanguage};
 
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 2;
 pub const STRUCTURED_JSON_CONTRACT_VERSION: &str = "1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -212,7 +212,7 @@ mod tests {
         let registry = stage1_registry();
         let generated = registry.generated_capability_set();
 
-        assert_eq!(generated.contract_version, 1);
+        assert_eq!(generated.contract_version, 2);
         assert_eq!(generated.ai_adapter_contract_version, 1);
         assert!(registry.supports_language(TargetLanguage::Rust));
         assert!(registry.supports_kind(crate::core::target::TargetKind::TextScalar));
@@ -227,6 +227,59 @@ mod tests {
             generated.integration_support.len(),
             registry.integration_support.len()
         );
+    }
+
+    #[test]
+    fn current_proto_matches_latest_frozen_snapshot() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let latest_version = newest_frozen_contract_version(root);
+        let current = std::fs::read_to_string(
+            root.join("proto/omv/contract/versions/current/contract.proto"),
+        )
+        .expect("current contract proto should exist");
+        let latest = std::fs::read_to_string(root.join(format!(
+            "proto/omv/contract/versions/{latest_version}/contract.proto"
+        )))
+        .expect("latest frozen contract proto should exist");
+
+        assert_eq!(latest_version, super::CONTRACT_VERSION);
+        assert_eq!(current, latest);
+    }
+
+    #[test]
+    fn frozen_v1_and_v2_capture_contract_boundaries() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let v1 = std::fs::read_to_string(root.join("proto/omv/contract/versions/1/contract.proto"))
+            .expect("v1 frozen contract proto should exist");
+        let v2 = std::fs::read_to_string(root.join("proto/omv/contract/versions/2/contract.proto"))
+            .expect("v2 frozen contract proto should exist");
+
+        assert!(v1.contains("OMV_TARGET_SUPPORT_RUNTIME_EXPORT = 6;"));
+        assert!(!v1.contains("OMV_TARGET_SUPPORT_MARKDOWN_MANAGED_BLOCK"));
+        assert!(!v1.contains("OmvIntegrationSupport"));
+        assert!(v2.contains("OMV_TARGET_SUPPORT_MARKDOWN_MANAGED_BLOCK = 9;"));
+        assert!(v2.contains("OMV_TARGET_SUPPORT_YAML_SCALAR = 10;"));
+        assert!(v2.contains("OMV_TARGET_SUPPORT_CARGO_WORKSPACE = 12;"));
+        assert!(v2.contains("OmvIntegrationSupport"));
+        assert!(v2.contains("repeated OmvIntegrationSupport integration_support = 6;"));
+    }
+
+    fn newest_frozen_contract_version(root: &std::path::Path) -> u32 {
+        std::fs::read_dir(root.join("proto/omv/contract/versions"))
+            .expect("contract versions directory should exist")
+            .filter_map(|entry| {
+                let entry = entry.expect("contract version directory entry should be readable");
+                if !entry
+                    .file_type()
+                    .expect("file type should be readable")
+                    .is_dir()
+                {
+                    return None;
+                }
+                entry.file_name().to_string_lossy().parse::<u32>().ok()
+            })
+            .max()
+            .expect("at least one frozen contract version should exist")
     }
 
     #[test]
