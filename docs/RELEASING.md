@@ -24,6 +24,20 @@ All targets are required before npm publication:
 - `x86_64-pc-windows-msvc`
 - `aarch64-pc-windows-msvc`
 
+## Build Requirements
+
+Source builds require `protoc` for protobuf contract generation. Local
+developers should install `protoc` with their platform package manager before
+running Cargo builds.
+
+CI installs `protoc` explicitly:
+
+- `.github/workflows/rust-quality.yml` calls
+  `.github/scripts/install-protoc.sh` before Cargo builds.
+- `.github/dist-build-setup.yml` is injected into the generated dist release
+  workflow and calls the same script on Linux, macOS, and Windows release
+  runners.
+
 ## One-Time npm Bootstrap
 
 The npm package must exist before npm Trusted Publishing can be configured. Do

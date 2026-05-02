@@ -283,6 +283,8 @@ Release configuration files:
 ```text
 Cargo.toml
 dist-workspace.toml
+.github/dist-build-setup.yml
+.github/scripts/install-protoc.sh
 .github/workflows/release.yml
 .github/workflows/npm-trusted-publish.yml
 docs/RELEASING.md
@@ -312,6 +314,7 @@ Required dist configuration:
 [dist]
 cargo-dist-version = "0.31.0"
 ci = "github"
+github-build-setup = "../dist-build-setup.yml"
 installers = ["npm"]
 publish-jobs = ["./npm-trusted-publish"]
 github-custom-job-permissions = { "npm-trusted-publish" = { "actions" = "read", "contents" = "read", "id-token" = "write" } }
@@ -348,6 +351,17 @@ aarch64-pc-windows-msvc
   `release.yml`.
 - First-time npm package bootstrap must happen outside the repository, under
   `/tmp`, and may use only an interactive npm login with 2FA.
+- Protobuf contract generation requires `protoc`. Source-build environments,
+  normal CI, and release CI must install `protoc` explicitly instead of hiding
+  it behind a vendored Rust build dependency.
+- `dist` release builds must install `protoc` through `.github/dist-build-setup.yml`
+  so regenerated release workflows keep the setup step. In `dist-workspace.toml`,
+  this file is referenced as `../dist-build-setup.yml` because `dist` resolves
+  `github-build-setup` relative to `.github/workflows/`.
+- `.github/dist-build-setup.yml` must call
+  `bash ./.github/scripts/install-protoc.sh` because `dist` does not preserve a
+  custom shell for injected setup steps; this keeps the same installer script
+  valid on Linux, macOS, and Windows runners.
 
 ### 4. Validation & Error Matrix
 
@@ -361,6 +375,7 @@ aarch64-pc-windows-msvc
 | tag does not match package version | `dist` planning must fail or release operator must correct tag/version before publish |
 | npm package does not exist yet | create placeholder only from `/tmp/npm-bootstrap-omv`, then configure Trusted Publishing |
 | bootstrap package files appear in repository | fail review; remove them from source control |
+| CI build fails with missing `protoc` | fail review; add/repair explicit `protoc` install in normal CI or `.github/dist-build-setup.yml` |
 
 ### 5. Good/Base/Bad Cases
 
@@ -372,6 +387,8 @@ git tag = v2605.2.1
 npm package = @magicdian/omv@2605.2.1
 release artifacts include all six required target archives
 npm publish job uses id-token: write and no npm token secret
+rust-quality.yml installs protobuf-compiler before cargo test/clippy
+.github/dist-build-setup.yml invokes .github/scripts/install-protoc.sh before dist build
 ```
 
 Base:
@@ -411,6 +428,11 @@ Linux aarch64 is treated as optional without an explicit product decision
   - `cargo fmt --check`
   - `cargo test --all-targets --all-features`
   - `cargo clippy --all-targets --all-features -- -D warnings`
+- CI source-build assertion:
+  - normal CI installs `protobuf-compiler` before Cargo builds on Ubuntu
+  - release CI injects `.github/dist-build-setup.yml` before `dist build`
+  - generated workflow calls `bash ./.github/scripts/install-protoc.sh`
+  - generated release workflow still passes `dist generate --mode ci --check`
 
 ### 7. Wrong vs Correct
 

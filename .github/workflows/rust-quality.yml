@@ -19,6 +19,9 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install protoc
+        run: bash ./.github/scripts/install-protoc.sh
+
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
 
