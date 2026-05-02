@@ -369,3 +369,37 @@ Added TOML-driven ignored external scenario tests for wiremux, deterministic app
 ### Next Steps
 
 - None - task complete
+
+
+## Session 10: Stable frozen proto API snapshots
+
+**Date**: 2026-05-02
+**Task**: Stable frozen proto API snapshots
+**Branch**: `dev`
+
+### Summary
+
+Added wiremux-style stable/frozen protobuf contract snapshots for OMV: v1 language-native target contract, v2 current runtime contract, current snapshot parity checks, CONTRACT_VERSION=2, build.rs codegen path update, executable backend spec coverage, and task archive.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `17278cc` | (see git log) |
+| `5294f68` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

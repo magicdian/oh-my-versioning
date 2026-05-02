@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 9
+- **Total Sessions**: 10
 - **Last Active**: 2026-05-02
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~371 | Active |
+| `journal-1.md` | ~405 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 10 | 2026-05-02 | Stable frozen proto API snapshots | `17278cc`, `5294f68` | `dev` |
 | 9 | 2026-05-02 | External project scenario validation | `e929ca1`, `7291b06` | `dev` |
 | 8 | 2026-05-02 | Platformized host integrations | `93ebb74` | `dev` |
 | 7 | 2026-05-01 | OMV contract architecture and generalized targets | `a7a3ae8`, `94486e7` | `dev` |
