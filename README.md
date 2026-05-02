@@ -8,6 +8,17 @@ Date-based version management with one local source of truth.
 authority and synchronizes language-native manifests plus runtime-export files
 from that state.
 
+## Installation
+
+Install the latest prebuilt OMV binary with npm:
+
+```bash
+npm install -g @magicdian/omv
+```
+
+The npm package installs the platform-specific `omv` binary from the matching
+GitHub Release. End users do not need a Rust toolchain.
+
 ## Core Model
 
 - `.omv/state.toml` is the only mutable version truth.

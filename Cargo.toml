@@ -1,7 +1,12 @@
 [package]
 name = "omv"
-version = "2604.18.1"
+version = "2605.2.1"
 edition = "2024"
+description = "Date-based version management with one local source of truth."
+homepage = "https://github.com/magicdian/oh-my-versioning"
+repository = "https://github.com/magicdian/oh-my-versioning"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 crossterm = "0.28"
@@ -14,3 +19,8 @@ toml = "0.8"
 
 [build-dependencies]
 prost-build = "0.14"
+
+# The profile that 'dist' will build with.
+[profile.dist]
+inherits = "release"
+lto = "thin"

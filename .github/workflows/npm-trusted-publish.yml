@@ -1,0 +1,44 @@
+name: npm Trusted Publish
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+
+      - name: Locate npm package
+        id: npm-package
+        shell: bash
+        run: |
+          mapfile -t packages < <(find target/distrib -name 'omv-npm-package.tar.gz' -type f)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            printf 'expected exactly one npm package artifact, found %s\n' "${#packages[@]}" >&2
+            printf '%s\n' "${packages[@]}" >&2
+            exit 1
+          fi
+          echo "path=${packages[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish @magicdian/omv with npm OIDC
+        run: npm publish "${{ steps.npm-package.outputs.path }}" --access public

@@ -54,6 +54,12 @@ panic-worthy.
 
 Partial writes can corrupt the source of truth.
 
+### Don't: Publish npm through long-lived tokens
+
+Release workflows for `@magicdian/omv` must use npm Trusted Publishing/OIDC.
+Do not add `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `.npmrc` auth tokens, or package
+publish secrets to GitHub Actions, docs, or generated release scripts.
+
 ## Required Patterns
 
 - typed enums for locale, build policy, version output, and target language
@@ -257,6 +263,192 @@ Wrong: run external scenarios in the repository root and rely on live NTP.
 
 ```rust
 let output = Command::new("omv").arg("bump").output()?;
+```
+
+## Scenario: GitHub Release and npm OIDC Distribution
+
+### 1. Scope / Trigger
+
+- Trigger: changing OMV release automation, package metadata, npm installer
+  behavior, supported release targets, or user-facing installation docs.
+- This is infrastructure/cross-layer work because Cargo metadata feeds `dist`,
+  `dist` generates GitHub Actions and npm package artifacts, GitHub Releases
+  host platform binaries, and npm Trusted Publishing exposes the install command
+  users execute.
+
+### 2. Signatures
+
+Release configuration files:
+
+```text
+Cargo.toml
+dist-workspace.toml
+.github/workflows/release.yml
+.github/workflows/npm-trusted-publish.yml
+docs/RELEASING.md
+README.md
+```
+
+Required package metadata:
+
+```toml
+[package]
+name = "omv"
+version = "<SemVer-compatible OMV version>"
+description = "Date-based version management with one local source of truth."
+homepage = "https://github.com/magicdian/oh-my-versioning"
+repository = "https://github.com/magicdian/oh-my-versioning"
+license = "MIT"
+readme = "README.md"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
+```
+
+Required dist configuration:
+
+```toml
+[dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+installers = ["npm"]
+publish-jobs = ["./npm-trusted-publish"]
+github-custom-job-permissions = { "npm-trusted-publish" = { "actions" = "read", "contents" = "read", "id-token" = "write" } }
+npm-scope = "@magicdian"
+hosting = "github"
+```
+
+Required targets:
+
+```text
+x86_64-apple-darwin
+aarch64-apple-darwin
+x86_64-unknown-linux-gnu
+aarch64-unknown-linux-gnu
+x86_64-pc-windows-msvc
+aarch64-pc-windows-msvc
+```
+
+### 3. Contracts
+
+- GitHub repository metadata must point at
+  `https://github.com/magicdian/oh-my-versioning`.
+- Git tags use `v<version>` and must match `Cargo.toml` package version.
+- npm package name is `@magicdian/omv`; the installed binary command is `omv`.
+- npm package version, Cargo package version, and GitHub release tag must refer
+  to the same OMV version.
+- GitHub Releases are the authoritative host for prebuilt binary artifacts.
+- npm packages must install the binary from the matching GitHub Release tag, not
+  from a mutable GitHub `latest` release.
+- npm CI publishing must use Trusted Publishing/OIDC. Long-lived npm publish
+  tokens are not an accepted fallback.
+- When npm publishing is split into a reusable `workflow_call` workflow,
+  configure npm Trusted Publishing with the caller workflow filename
+  `release.yml`.
+- First-time npm package bootstrap must happen outside the repository, under
+  `/tmp`, and may use only an interactive npm login with 2FA.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| `dist generate --mode ci --check` differs | fail before commit; regenerate from `dist-workspace.toml` |
+| required target omitted from `dist-workspace.toml` | fail review; restore the full six-target matrix |
+| workflow references `NPM_TOKEN`, `NODE_AUTH_TOKEN`, or npm auth token config | fail review; replace with OIDC trusted publishing |
+| npm publish job runs before `host` succeeds | fail review; publish job must depend on `host` |
+| npm package artifact missing or duplicated | `.github/workflows/npm-trusted-publish.yml` must exit non-zero |
+| tag does not match package version | `dist` planning must fail or release operator must correct tag/version before publish |
+| npm package does not exist yet | create placeholder only from `/tmp/npm-bootstrap-omv`, then configure Trusted Publishing |
+| bootstrap package files appear in repository | fail review; remove them from source control |
+
+### 5. Good/Base/Bad Cases
+
+Good:
+
+```text
+Cargo.toml version = 2605.2.1
+git tag = v2605.2.1
+npm package = @magicdian/omv@2605.2.1
+release artifacts include all six required target archives
+npm publish job uses id-token: write and no npm token secret
+```
+
+Base:
+
+```text
+pull_request runs dist plan only
+tag push runs dist build/host, then custom npm trusted publish
+README shows npm install -g @magicdian/omv
+```
+
+Bad:
+
+```text
+@magicdian/omv@2605.2.1 downloads GitHub Releases latest
+release.yml references secrets.NPM_TOKEN
+bootstrap package.json is committed to the repository
+Linux aarch64 is treated as optional without an explicit product decision
+```
+
+### 6. Tests Required
+
+- `dist generate --mode ci --check`
+- `dist manifest --artifacts=all --output-format=json --no-local-paths`
+  assertions:
+  - package name is `@magicdian/omv`
+  - release owner/repo is `magicdian/oh-my-versioning`
+  - all six required targets appear in the artifacts matrix
+  - npm installer artifact is `omv-npm-package.tar.gz`
+- `dist build --artifacts=global --tag v<version> --output-format=json`
+  assertions:
+  - npm tarball is generated
+  - generated package `bin.omv` points at the generated runner
+  - generated package version matches `Cargo.toml`
+- `rg "NPM_TOKEN|NODE_AUTH_TOKEN|secrets\\.NPM|npm_token" .github README.md docs dist-workspace.toml`
+  should find only prohibition docs/comments, never executable secret usage.
+- Standard Rust gates still pass:
+  - `cargo fmt --check`
+  - `cargo test --all-targets --all-features`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```yaml
+- name: Publish npm
+  env:
+    NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+  run: npm publish --access public
+```
+
+Correct:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+
+steps:
+  - run: npm publish "${{ steps.npm-package.outputs.path }}" --access public
+```
+
+Wrong:
+
+```bash
+mkdir npm-bootstrap-omv
+cd npm-bootstrap-omv
+npm publish --access public --tag bootstrap
+git add package.json
+```
+
+Correct:
+
+```bash
+mkdir -p /tmp/npm-bootstrap-omv
+cd /tmp/npm-bootstrap-omv
+npm publish --access public --tag bootstrap
 ```
 
 Correct: run in an ignored isolated worktree and inject deterministic time when

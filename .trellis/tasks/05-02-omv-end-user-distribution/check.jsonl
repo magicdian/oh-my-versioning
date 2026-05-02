@@ -1,0 +1,4 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify release/config/docs changes against project quality gates"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "check release changes remain scoped to packaging/docs/workflows"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "verify package metadata, release automation, and docs stay aligned"}
