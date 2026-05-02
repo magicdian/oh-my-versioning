@@ -403,3 +403,37 @@ Added wiremux-style stable/frozen protobuf contract snapshots for OMV: v1 langua
 ### Next Steps
 
 - None - task complete
+
+
+## Session 11: Release distribution pipeline
+
+**Date**: 2026-05-02
+**Task**: Release distribution pipeline
+**Branch**: `dev`
+
+### Summary
+
+Added cargo-dist GitHub Release automation, npm Trusted Publishing/OIDC workflow, release docs, release code-spec contracts, and bumped OMV to 2605.2.1.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `244905c` | (see git log) |
+| `91e5681` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
