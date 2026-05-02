@@ -1,0 +1,30 @@
+{
+  "adapter_command": {
+    "install": "omv adapter install --agent <name> --spec <name>",
+    "list": "omv adapter list",
+    "refresh": "omv adapter refresh",
+    "status": "omv adapter status"
+  },
+  "commands": {
+    "bump": {
+      "syncs_targets": true,
+      "write": [
+        "omv bump --json",
+        "omv bump --output json"
+      ]
+    },
+    "current": {
+      "read": [
+        "omv current --json",
+        "omv current --output json"
+      ]
+    }
+  },
+  "contract_version": 1,
+  "rules": {
+    "do_not_edit_native_manifest_versions_directly": true,
+    "native_manifests_are_derived_outputs": true,
+    "runtime_exports_are_read_only_views": true
+  },
+  "truth_source": ".omv/state.toml"
+}

@@ -1,0 +1,53 @@
+{
+  "id": "omv-finalize-boundary-helper",
+  "name": "omv-finalize-boundary-helper",
+  "title": "feat(omv): finalize boundary helper for Trellis",
+  "description": "Subtask of platformized host integrations: add generic finalize-boundary helper contract and Trellis finish-work managed-block installation.",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "backend-finalize-boundary",
+  "package": null,
+  "priority": "P2",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-05-01",
+  "completedAt": "2026-05-02",
+  "branch": "feature/omv-finalize-boundary-helper",
+  "base_branch": "dev",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "brainstorm"
+    },
+    {
+      "phase": 2,
+      "action": "research"
+    },
+    {
+      "phase": 3,
+      "action": "implement"
+    },
+    {
+      "phase": 4,
+      "action": "check"
+    },
+    {
+      "phase": 5,
+      "action": "update-spec"
+    },
+    {
+      "phase": 6,
+      "action": "record-session"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

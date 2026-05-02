@@ -1,0 +1,51 @@
+# Workspace Index - magicdian
+
+> Journal tracking for AI development sessions.
+
+---
+
+## Current Status
+
+<!-- @@@auto:current-status -->
+- **Active File**: `journal-1.md`
+- **Total Sessions**: 11
+- **Last Active**: 2026-05-02
+<!-- @@@/auto:current-status -->
+
+---
+
+## Active Documents
+
+<!-- @@@auto:active-documents -->
+| File | Lines | Status |
+|------|-------|--------|
+| `journal-1.md` | ~439 | Active |
+<!-- @@@/auto:active-documents -->
+
+---
+
+## Session History
+
+<!-- @@@auto:session-history -->
+| # | Date | Title | Commits | Branch |
+|---|------|-------|---------|--------|
+| 11 | 2026-05-02 | Release distribution pipeline | `244905c`, `91e5681` | `dev` |
+| 10 | 2026-05-02 | Stable frozen proto API snapshots | `17278cc`, `5294f68` | `dev` |
+| 9 | 2026-05-02 | External project scenario validation | `e929ca1`, `7291b06` | `dev` |
+| 8 | 2026-05-02 | Platformized host integrations | `93ebb74` | `dev` |
+| 7 | 2026-05-01 | OMV contract architecture and generalized targets | `a7a3ae8`, `94486e7` | `dev` |
+| 6 | 2026-04-18 | Brainstorm platformized host integrations and finalize boundary | - | `dev` |
+| 5 | 2026-04-18 | Finalize-task automation and OMV self-host setup | `f4e3042`, `3926f42` | `dev` |
+| 4 | 2026-04-15 | Complete Trellis v0.4.0 migration task | `621db6d` | `dev` |
+| 3 | 2026-04-13 | Add OMV AI/spec adapter framework | `bda8a0a` |
+| 2 | 2026-04-13 | Finalize OMV init UX and close foundation tasks | `71ee1e9` |
+| 1 | 2026-04-13 | Bootstrap OMV specs and planning | `b87c15e` |
+<!-- @@@/auto:session-history -->
+
+---
+
+## Notes
+
+- Sessions are appended to journal files
+- New journal file created when current exceeds 2000 lines
+- Use `add_session.py` to record sessions

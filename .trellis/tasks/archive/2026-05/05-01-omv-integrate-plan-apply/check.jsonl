@@ -1,0 +1,12 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Check against parent decisions"}
+{"file": ".trellis/tasks/05-01-omv-integration-contract-storage/prd.md", "reason": "Check dependency assumptions"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Verify plan/apply alignment"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify partial failure and exit semantics"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Verify localized output"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer consistency"}
+{"file": "src/cli/mod.rs", "reason": "Review CLI parser changes"}
+{"file": "src/app/mod.rs", "reason": "Review orchestration changes"}
+{"file": "src/errors.rs", "reason": "Review error taxonomy changes"}

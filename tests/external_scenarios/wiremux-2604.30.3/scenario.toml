@@ -1,0 +1,64 @@
+id = "wiremux-2604.30.3"
+repo = "https://github.com/magicdian/wiremux.git"
+tag = "2604.30.3"
+commit = "207fb016c28f82cde971ab4e4ab175a274832ee9"
+expected_version = "2605.1.1"
+expected_drift = 7
+expected_synced = 7
+expected_ok = 7
+
+[[assertions]]
+path = "VERSION"
+text = "2605.1.1"
+
+[[assertions]]
+path = "README.md"
+text = "version-2605.1.1-blue"
+
+[[assertions]]
+path = "README_CN.md"
+text = "version-2605.1.1-blue"
+
+[[assertions]]
+path = "sources/vendor/espressif/generic/components/esp-wiremux/idf_component.yml"
+text = "version: \"2605.1.1\""
+
+[[assertions]]
+path = "sources/vendor/espressif/generic/components/esp-wiremux/include/esp_wiremux.h"
+text = "#define ESP_WIREMUX_VERSION \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/cli/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/enhanced-registry/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/generic-enhanced/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/host-session/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/interactive/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/tui/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/crates/vendor-enhanced/Cargo.toml"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "sources/host/wiremux/Cargo.lock"
+text = "version = \"2605.1.1\""
+
+[[assertions]]
+path = "docs/esp-registry-release.md"
+text = "Current release: `2605.1.1`."

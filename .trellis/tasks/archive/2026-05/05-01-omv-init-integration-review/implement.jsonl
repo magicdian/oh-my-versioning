@@ -1,0 +1,21 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Parent task init integration decisions"}
+{"file": ".trellis/tasks/05-01-omv-integration-contract-storage/prd.md", "reason": "Integration draft/state dependency"}
+{"file": ".trellis/tasks/05-01-omv-integrate-plan-apply/prd.md", "reason": "Apply/status behavior init should invoke or defer"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Trigger vs contract architecture alignment"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Ratatui/menuconfig screen and widget rules"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Draft state vs persisted state"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Typed UI state and actions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "UI interaction testing expectations"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Localized UI copy"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Init crosses UI, storage, apply, and host files"}
+{"file": "docs/matrix/MENUCONFIG_STYLE_MATRIX.md", "reason": "Menuconfig behavior reference"}
+{"file": "src/ui/state/draft.rs", "reason": "Init draft state patterns"}
+{"file": "src/ui/discovery.rs", "reason": "Existing init discovery patterns"}
+{"file": "src/ui/runtime.rs", "reason": "Init event/runtime flow"}
+{"file": "src/ui/screen/review.rs", "reason": "Review screen patterns"}
+{"file": "src/app/mod.rs", "reason": "Init persistence orchestration"}
+{"file": "resources/i18n/en-US.toml", "reason": "English localized UI keys"}
+{"file": "resources/i18n/zh-CN.toml", "reason": "Chinese localized UI keys"}

@@ -1,0 +1,44 @@
+{
+  "id": "omv-target-sync-skills",
+  "name": "omv-target-sync-skills",
+  "title": "Implement target sync adapters and AI skills templates",
+  "description": "Implement flat target registration, language-specific sync/runtime export adapters, and .omv/skills guidance that routes version updates through omv bump.",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P2",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-04-13",
+  "completedAt": "2026-04-13",
+  "branch": null,
+  "base_branch": "dev",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": "04-13-omv-cli-foundation",
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

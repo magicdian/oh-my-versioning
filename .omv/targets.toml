@@ -1,0 +1,47 @@
+schema_version = 1
+
+[[targets]]
+id = "workspace-c-family"
+language = "c-family"
+root = "."
+manifest_path = "CMakeLists.txt"
+runtime_export_path = "include/omv_version.h"
+strategy = "intent-only"
+enabled = false
+
+[[targets]]
+id = "workspace-java"
+language = "java"
+root = "."
+manifest_path = "pom.xml"
+runtime_export_path = "src/main/java/omv/Version.java"
+strategy = "intent-only"
+enabled = false
+
+[[targets]]
+id = "workspace-rust"
+language = "rust"
+root = "."
+manifest_path = "Cargo.toml"
+runtime_export_path = "src/generated/version.rs"
+strategy = "intent-only"
+enabled = true
+
+[[targets]]
+id = "workspace-python"
+language = "python"
+root = "."
+manifest_path = "pyproject.toml"
+runtime_export_path = "omv_generated/version.py"
+strategy = "intent-only"
+enabled = false
+
+[[targets]]
+id = "workspace-go"
+language = "go"
+root = "."
+manifest_path = "go.mod"
+runtime_export_path = "internal/omv/version.go"
+strategy = "intent-only"
+enabled = false
+

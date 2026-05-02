@@ -1,0 +1,14 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/tasks/04-13-smooth-omv-version-source-ai-spec/prd.md", "reason": "smooth-omv-version-source-ai-spec implementation"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "adapter and CLI module boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "adapter registry and .omv persistence contracts"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "structured JSON success/failure behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "tests and forbidden patterns for version truth"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "localized text mode vs unlocalized JSON mode"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "truth to CLI to adapter flow checklist"}
+{"file": "src/cli/mod.rs", "reason": "CLI command and output-mode parsing pattern"}
+{"file": "src/app/mod.rs", "reason": "command orchestration and output boundary"}
+{"file": "src/storage/state.rs", "reason": "state persistence pattern for .omv files"}
+{"file": "src/sync/skills.rs", "reason": "generated omv-owned AI artifact pattern"}
+{"file": "tests/integration/target_sync.rs", "reason": "integration harness for .omv and generated artifacts"}

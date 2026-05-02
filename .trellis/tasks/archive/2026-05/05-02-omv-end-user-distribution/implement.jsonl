@@ -1,0 +1,5 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "release workflow changes must keep CI quality gates and avoid unsafe publish patterns"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "release files should stay outside runtime module boundaries and avoid source changes"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "release config touches package metadata, generated artifacts, docs, and automation boundaries"}

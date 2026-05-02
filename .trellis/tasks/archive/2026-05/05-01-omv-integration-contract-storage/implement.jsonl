@@ -1,0 +1,15 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Parent task decisions for platformized host integrations"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Contract-driven architecture alignment"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Backend module boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": ".omv persistence contracts"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Typed validation and storage errors"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend testing and review bar"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Integration state crosses storage, CLI, AI contract, and host projection"}
+{"file": "src/contract/registry.rs", "reason": "Existing capability registry to extend"}
+{"file": "proto/omv/contract/v1/contract.proto", "reason": "Generated contract source"}
+{"file": "src/core/schema.rs", "reason": "Typed TOML schema patterns"}
+{"file": "src/storage/adapters.rs", "reason": "Adapter persistence pattern"}
+{"file": "src/storage/targets.rs", "reason": "Target persistence pattern"}
+{"file": "src/errors.rs", "reason": "Error taxonomy extension point"}

@@ -1,0 +1,14 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-13-omv-core-scaffold/prd.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "core scaffold contract"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "core scaffold contract"}
+{"file": "docs/matrix/MENUCONFIG_STYLE_MATRIX.md", "reason": "core scaffold contract"}

@@ -1,0 +1,13 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Check init flow against parent decisions"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Verify screen/widget behavior"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Verify draft/persisted state split"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Verify typed UI state"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify UI tests"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Verify catalog-driven copy"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify UI/storage/apply consistency"}
+{"file": "src/ui/state/draft.rs", "reason": "Review draft state changes"}
+{"file": "src/ui/runtime.rs", "reason": "Review runtime flow changes"}
+{"file": "src/app/mod.rs", "reason": "Review init orchestration changes"}

@@ -1,0 +1,12 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Check helper against parent decisions"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Verify trigger/contract alignment"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify missing field, duplicate, and pending behavior"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify finalization audit behavior"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Verify localized helper output"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer finalization flow"}
+{"file": "src/app/mod.rs", "reason": "Review helper orchestration"}
+{"file": "src/adapter.rs", "reason": "Review contract and managed block changes"}
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Review active completion surface mutation"}

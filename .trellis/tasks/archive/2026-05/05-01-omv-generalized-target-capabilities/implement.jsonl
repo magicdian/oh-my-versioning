@@ -1,0 +1,14 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Architecture contract and Stage 2 target capability scope"}
+{"file": ".trellis/tasks/05-01-omv-contract-adapter-refactor/prd.md", "reason": "Stage 1 dependency and expected plan/adapter foundation"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Target schema V2 persistence rules"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Adapter/module boundaries for new target kinds"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Validation errors for malformed V2 targets"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing and no silent drift rules"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer target sync and JSON contract checks"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicated adapter/parser/path logic"}
+{"file": "src/core/schema.rs", "reason": "Target schema extension point"}
+{"file": "src/storage/targets.rs", "reason": "Target parser/saver V1/V2 compatibility"}
+{"file": "src/sync/mod.rs", "reason": "Plan/adapter integration point for V2 targets"}
+{"file": "tests/integration/target_sync.rs", "reason": "Existing sync integration regression coverage"}

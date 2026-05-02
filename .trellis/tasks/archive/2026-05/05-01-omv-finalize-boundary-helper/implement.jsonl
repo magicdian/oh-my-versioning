@@ -1,0 +1,19 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Parent finalize-boundary decisions"}
+{"file": ".trellis/tasks/05-01-omv-integration-contract-storage/prd.md", "reason": "Integration provider/capability dependency"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Trigger vs contract architecture alignment"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Finalize-task and adapter projection boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Finalization audit and persistence behavior"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Missing change_type and duplicate fingerprint behavior"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Localized helper output"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend test bar"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Finalize boundary cross-layer flow"}
+{"file": "src/cli/mod.rs", "reason": "Event helper CLI parsing patterns"}
+{"file": "src/app/mod.rs", "reason": "Finalize-task orchestration and tests"}
+{"file": "src/core/finalization.rs", "reason": "Semantic finalize decision logic"}
+{"file": "src/adapter.rs", "reason": ".omv/ai contract and managed block source"}
+{"file": "src/sync/mod.rs", "reason": "Target metadata and plan/apply model"}
+{"file": ".agents/skills/finish-work/SKILL.md", "reason": "Active Trellis finish-work surface"}
+{"file": "resources/i18n/en-US.toml", "reason": "English localized helper keys"}
+{"file": "resources/i18n/zh-CN.toml", "reason": "Chinese localized helper keys"}

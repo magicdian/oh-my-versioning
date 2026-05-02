@@ -1,0 +1,12 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/tasks/04-18-platformized-host-integrations/prd.md", "reason": "Check against parent task decisions"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Verify architecture alignment"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Verify module placement"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify persistence contract"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify error behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify tests and forbidden patterns"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer consistency"}
+{"file": "src/contract/registry.rs", "reason": "Review capability registry changes"}
+{"file": "src/storage/mod.rs", "reason": "Review storage module exports"}
+{"file": "src/core/mod.rs", "reason": "Review core module exports"}

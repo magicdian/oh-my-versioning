@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "New event command must keep CLI/app/storage ownership boundaries clean"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Finalize-task adds a new .omv persistence contract and needs explicit storage rules"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Event command needs typed errors and stable structured JSON behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Version-truth mutations require correctness-first patterns and storage safety"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Finalize flow should reuse existing bump/storage helpers instead of copying logic"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Event command crosses CLI, .omv storage, sync, and structured output boundaries"}

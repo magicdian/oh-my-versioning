@@ -1,0 +1,8 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check skill"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Verify implementation matches architecture decisions"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Check persisted contract changes"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Check typed error behavior"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Check user-facing copy is localized"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check cross-layer consistency"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check quality gates and tests"}
