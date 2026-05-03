@@ -101,6 +101,9 @@ publish secrets to GitHub Actions, docs, or generated release scripts.
   provider/capability, unsafe target file, and partial failure
 - finalize-boundary helper tests for missing change type, task resolution,
   idempotency, and no silent semantic inference
+- finish-boundary projection tests must prove target drift is checked before
+  finalization, explicit `omv sync --json` is the repair path, and
+  non-semantic no-op finalizations are not described as target writes
 - compatibility tests proving `omv adapter install/refresh/list/status` remain
   available while `omv integrate ...` becomes the forward command family
 - locale parity/fallback tests

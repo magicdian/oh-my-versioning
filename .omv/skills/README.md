@@ -2,4 +2,4 @@
 
 Use `omv bump` to update project versions.
 
-Current recorded version: `2604.18.1`
+Current recorded version: `2605.3.2`
