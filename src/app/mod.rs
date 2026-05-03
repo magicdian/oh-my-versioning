@@ -1480,13 +1480,7 @@ fn write_integration_managed_file(
     source_rel: &str,
     rendered: &str,
 ) -> Result<(), OmvError> {
-    let content = format!(
-        "<!-- OMV-MANAGED-FILE source=.omv/{}/{} contract={} -->\n{}",
-        adapter::AI_DIR,
-        source_rel,
-        adapter::CONTRACT_VERSION,
-        rendered
-    );
+    let content = adapter::wrap_managed_file(source_rel, rendered);
     storage::atomic::write_atomically(host_path, content.as_bytes())
 }
 

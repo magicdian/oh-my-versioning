@@ -62,7 +62,7 @@ For each step, ask:
 | `.omv/targets.toml` kind record -> adapter config | stringly dispatch, missing required fields, unsupported future capabilities |
 | plan -> sync/check output | command-specific status drift or accidental mutation in check mode |
 | `.omv/integrations.toml` -> provider/capability plan | stale detection, unsafe file mutation, status/failure drift |
-| `.omv/ai/*` -> host adapters | stale guidance or unmanaged overwrite |
+| `.omv/ai/*` -> host adapters | stale guidance, unmanaged overwrite, or host-loader syntax breakage from misplaced OMV metadata |
 | host finish surface -> finalize-boundary helper | silent semantic inference, duplicate bump, wrong boundary source |
 | typed result -> JSON envelope | automation breakage |
 | locale preference -> rendered text | hardcoded copy or missing key parity |
@@ -136,6 +136,9 @@ Before implementation:
 
 - [ ] Identified which `.omv` files are read and written
 - [ ] Identified whether `.omv/ai/*` or adapter host files are affected
+- [ ] Identified whether any affected host file has loader-required structure
+      such as Codex skill YAML frontmatter, and verified OMV managed markers do
+      not break that structure
 - [ ] Identified whether `.omv/integrations.toml` is read or written
 - [ ] Identified whether the flow touches provider detection, selected
       capabilities, capability status, or failure reasons
@@ -165,5 +168,7 @@ After implementation:
 - [ ] Tested finalize-boundary missing `change_type` if completion-boundary
       automation changed
 - [ ] Tested adapter refresh/install if host projections changed
+- [ ] Tested host-loader syntax for projected files with structural
+      requirements, especially Codex `SKILL.md` frontmatter
 - [ ] Tested missing target manifest behavior
 - [ ] Verified state remains consistent after failure

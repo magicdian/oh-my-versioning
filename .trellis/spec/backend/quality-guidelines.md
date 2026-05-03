@@ -76,6 +76,9 @@ publish secrets to GitHub Actions, docs, or generated release scripts.
   limited YAML scalar parser must reject unsupported YAML features explicitly
 - adapter registry plus canonical `.omv/ai/*` generation for agent/spec
   projections
+- generated host projections must preserve host loader syntax before adding
+  OMV metadata. In particular, Codex `SKILL.md` files must begin with YAML
+  frontmatter; managed-file comments must not precede the opening `---`.
 - internal integration provider registry with capability-granular statuses for
   `codex`, `trellis`, `project-instructions`, `host-skill`, `spec-guide`,
   `spec-index-snippet`, and `finalize-boundary`

@@ -709,10 +709,28 @@ fn remove_managed_block(existing: &str, begin: &str, end: &str) -> String {
     existing.to_owned()
 }
 
-fn wrap_managed_file(source_rel: &str, rendered: &str) -> String {
-    format!(
-        "<!-- OMV-MANAGED-FILE source=.omv/{AI_DIR}/{source_rel} contract={CONTRACT_VERSION} -->\n{rendered}"
-    )
+pub(crate) fn wrap_managed_file(source_rel: &str, rendered: &str) -> String {
+    let marker = format!(
+        "<!-- OMV-MANAGED-FILE source=.omv/{AI_DIR}/{source_rel} contract={CONTRACT_VERSION} -->"
+    );
+    prepend_managed_marker(&marker, rendered)
+}
+
+fn prepend_managed_marker(marker: &str, rendered: &str) -> String {
+    if let Some(close_start) = rendered
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.find("\n---\n").map(|index| index + "---\n".len()))
+    {
+        let close_end = close_start + "\n---\n".len();
+        return format!(
+            "{}{}\n{}",
+            &rendered[..close_end],
+            marker,
+            &rendered[close_end..]
+        );
+    }
+
+    format!("{marker}\n{rendered}")
 }
 
 fn is_omv_managed_file(content: &str) -> bool {
@@ -766,11 +784,12 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
         (
             "adapters/codex/SKILL.md",
             [
-                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/SKILL.md contract=1 -->",
                 "---",
                 "name: omv-versioning",
                 "description: \"Use OMV as the version source of truth for this project.\"",
                 "---",
+                "",
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/SKILL.md contract=1 -->",
                 "",
                 "1. Read `./.omv/ai/instructions.md`.",
                 "2. Use `omv current --json` to inspect current version truth.",
@@ -890,6 +909,10 @@ mod tests {
         assert!(contract.contains("\"public_runtime_in_mvp\": false"));
         assert!(contract.contains("\"finalize_boundary\""));
         assert!(contract.contains("\"missing_change_type\""));
+        let codex_skill = fs::read_to_string(omv_root.join("ai/adapters/codex/SKILL.md"))
+            .expect("codex skill source should exist");
+        assert!(codex_skill.starts_with("---\n"));
+        assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
 
         cleanup_root(&omv_root);
     }
@@ -928,6 +951,10 @@ mod tests {
         assert_eq!(registry.installations.len(), 1);
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join(".codex/skills/omv-versioning/SKILL.md").exists());
+        let codex_skill = fs::read_to_string(root.join(".codex/skills/omv-versioning/SKILL.md"))
+            .expect("codex skill host file should exist");
+        assert!(codex_skill.starts_with("---\n"));
+        assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
 
         cleanup_project_root(&root);
     }
