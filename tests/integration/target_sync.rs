@@ -572,6 +572,11 @@ fn integrate_apply_bootstraps_codex_and_reports_json_envelope() {
         &project_root.join(".codex/skills/omv-versioning/SKILL.md"),
         "omv-versioning",
     );
+    let codex_skill =
+        fs::read_to_string(project_root.join(".codex/skills/omv-versioning/SKILL.md"))
+            .expect("codex skill host file should exist");
+    assert!(codex_skill.starts_with("---\n"));
+    assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
     assert_file_contains(
         &omv_root.join("integrations.toml"),
         "status = \"installed\"",

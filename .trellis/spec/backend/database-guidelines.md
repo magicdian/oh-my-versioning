@@ -402,6 +402,11 @@ Rules:
   detect drift
 - host files such as `AGENTS.md`, `CLAUDE.md`, or spec guides are derived
   projections of `.omv/ai/*`
+- host adapters with their own file-level syntax contracts must remain valid
+  for that host after OMV metadata is added. For Codex skills,
+  `adapters/codex/SKILL.md` and `.codex/skills/*/SKILL.md` must start with
+  YAML frontmatter delimited by `---`; OMV managed-file comments belong after
+  the frontmatter block, not before it.
 - generated guidance should mention `omv integrate status/apply` and the
   finalize-boundary helper contract where available
 - generated guidance must not make installed host files authoritative
@@ -513,6 +518,10 @@ Rules:
 - Integrations malformed-file test proving apply/status fail before writes
 - Finalizations round-trip test with pending/bumped/noop entries
 - Canonical `.omv/ai/*` generation test
+- Codex skill projection test asserting both canonical
+  `.omv/ai/adapters/codex/SKILL.md` and installed
+  `.codex/skills/omv-versioning/SKILL.md` start with YAML frontmatter before
+  OMV managed-file metadata
 - `omv plan --json` test proving target status output is produced without writes
 - `omv sync --check` success and drift-failure tests proving check mode does
   not mutate targets
