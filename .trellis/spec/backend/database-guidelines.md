@@ -373,6 +373,10 @@ Rules:
 - `trellis` requires an existing Trellis installation before OMV mutates
   Trellis files
 - `omv integrate apply` must re-detect before planning/writing
+- `omv integrate apply` is also the refresh/reconcile command for selected
+  installed capabilities. If a selected capability already has an installed
+  host projection, apply must rewrite the OMV-owned file or managed block from
+  current `.omv/ai/*` content instead of returning an empty result set.
 - failed capabilities keep stable `reason_code` plus a human-readable message
 - best-effort apply preserves successful capability writes but returns non-zero
   if any selected capability failed
@@ -380,6 +384,146 @@ Rules:
 - `.omv/integrations.toml` does not replace `.omv/state.toml`, `.omv/targets.toml`,
   or `.omv/adapters.toml`; each file owns a distinct domain
 - MVP providers are internal registry descriptors, not a public plugin runtime
+
+### Scenario: Integration Apply Refresh/Reconcile
+
+#### 1. Scope / Trigger
+
+- Trigger: changing `omv integrate apply`, integration capability planning,
+  host projection refresh, `.omv/ai/*` generation, or managed marker handling.
+- This is cross-layer because `.omv/integrations.toml` selection state feeds
+  provider detection, capability status, host file writes, `.omv/adapters.toml`
+  projection recovery metadata, and operator-visible JSON/text results.
+
+#### 2. Signatures
+
+```rust
+fn execute_integrate_apply(
+    omv_root: &Path,
+    project_root: &Path,
+) -> Result<IntegrationApplySummary, OmvError>;
+
+fn selected_integration_capabilities(
+    status: &IntegrationStatusSummary,
+) -> Vec<IntegrationCapabilityPlan>;
+
+fn install_integration_target(
+    omv_root: &Path,
+    project_root: &Path,
+    target: &IntegrationTarget,
+    plan: &IntegrationCapabilityPlan,
+) -> Result<AdapterTargetMode, OmvError>;
+
+fn is_omv_managed_integration_file(content: &str) -> bool;
+fn write_integration_managed_file(path: &Path, source_rel: &str, rendered: &str)
+    -> Result<(), OmvError>;
+fn write_integration_managed_block(
+    path: &Path,
+    plan: &IntegrationCapabilityPlan,
+    rendered: &str,
+) -> Result<(), OmvError>;
+```
+
+#### 3. Contracts
+
+- `omv integrate apply` must apply or refresh every selected capability whose
+  current status is not `failed`; `installed` is refreshable, not terminal.
+- Before writes, apply must call `ensure_canonical_artifacts`, load
+  `.omv/integrations.toml`, rebuild status from current provider detection, and
+  persist updated capability statuses.
+- `DedicatedFile` targets are rewritten as full OMV-managed files using
+  `<!-- OMV-MANAGED-FILE ... -->`.
+- `ManagedBlockOnly` and `TrellisFinalizeBoundary` targets must only replace
+  their OMV-managed block and must preserve host-owned text outside the block.
+- `FullFileOrManagedBlock` targets use full-file refresh only when the host
+  file itself starts with `<!-- OMV-MANAGED-FILE`. If the marker appears inside
+  an OMV-managed block, the target must be refreshed as a block, not as a
+  materialized file.
+- `record_adapter_target` must persist `mode = "managed-block"` for block
+  refreshes and `mode = "materialize"` only for true full-file projections.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| selected capability status is `installed` | refresh projection and return installed result |
+| selected capability status is `pending` or `selected` | install projection and return installed result |
+| selected capability status is `failed` | skip until operator repairs state or retries from a non-failed status |
+| host file starts with `<!-- OMV-MANAGED-FILE` | full-file rewrite is allowed |
+| host file contains `OMV-MANAGED-BEGIN` with nested `OMV-MANAGED-FILE` text | replace only the managed block |
+| host file has host-owned text around an OMV block | preserve host-owned text byte-for-byte except surrounding newline normalization required by block replacement |
+| Trellis finish-work block exists but is stale | replace only `spec-trellis-finalize-boundary-finish-work` |
+| Codex skill file is a dedicated OMV-managed file | rewrite full file while preserving YAML frontmatter first |
+
+#### 5. Good/Base/Bad Cases
+
+Good:
+
+```text
+AGENTS.md
+  host-owned Trellis block
+  OMV-MANAGED-BEGIN:integration-codex-project-instructions
+  stale OMV content
+  OMV-MANAGED-END:integration-codex-project-instructions
+
+omv integrate apply
+  -> keeps host-owned Trellis block
+  -> replaces only integration-codex-project-instructions
+  -> reports codex:project-instructions installed
+```
+
+Base:
+
+```text
+.codex/skills/omv-versioning/SKILL.md starts with YAML frontmatter and contains
+OMV-MANAGED-FILE metadata after the frontmatter.
+
+omv integrate apply
+  -> rewrites the dedicated skill file from .omv/ai/adapters/codex/SKILL.md
+```
+
+Bad:
+
+```text
+AGENTS.md contains an OMV managed block whose block body includes
+OMV-MANAGED-FILE, and apply rewrites the entire file, deleting unrelated
+Trellis instructions.
+```
+
+#### 6. Tests Required
+
+- integration test: selected installed `project-instructions` refresh replaces
+  stale OMV block content and preserves host-owned text outside the block.
+- integration test: selected installed `host-skill` refresh rewrites the
+  dedicated Codex skill file and preserves YAML frontmatter at byte 0.
+- integration test: selected installed `finalize-boundary` refresh replaces a
+  stale finish-work block with current sync/check guidance.
+- assertion points:
+  - JSON/text output includes one installed result per refreshed capability.
+  - `.omv/adapters.toml` records `managed-block` for refreshed host files that
+    are block projections.
+  - host-owned content before and after the OMV block still exists.
+  - stale block body text no longer exists after apply.
+
+#### 7. Wrong vs Correct
+
+Wrong:
+
+```rust
+if content.contains("<!-- OMV-MANAGED-FILE") {
+    write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
+}
+```
+
+Correct:
+
+```rust
+if is_omv_managed_integration_file(&content) {
+    write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
+} else {
+    write_integration_managed_block(&host_path, plan, &rendered)?;
+}
+```
 
 #### `.omv/ai/*`
 
@@ -520,6 +664,9 @@ Rules:
   detection snapshot, and failure reason
 - Integrations missing-file test proving absent state defaults to empty
 - Integrations malformed-file test proving apply/status fail before writes
+- Integrate apply refresh test proving selected installed capabilities are
+  rewritten from current `.omv/ai/*` content while preserving host-owned text
+  around managed blocks
 - Finalizations round-trip test with pending/bumped/noop entries
 - Canonical `.omv/ai/*` generation test
 - Codex skill projection test asserting both canonical

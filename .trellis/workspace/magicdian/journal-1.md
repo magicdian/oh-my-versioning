@@ -437,3 +437,36 @@ Added cargo-dist GitHub Release automation, npm Trusted Publishing/OIDC workflow
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Refresh installed OMV integrations
+
+**Date**: 2026-05-03
+**Task**: Refresh installed OMV integrations
+**Branch**: `dev`
+
+### Summary
+
+Implemented integrate apply refresh/reconcile for selected installed capabilities, fixed managed-file versus managed-block detection, documented executable contracts, and bumped OMV to 2605.3.4.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3b08027` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
