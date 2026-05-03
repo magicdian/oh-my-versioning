@@ -317,7 +317,10 @@ pub fn trellis_finish_work_finalize_block() -> String {
         "## OMV Finalize Boundary",
         "",
         "- [ ] Choose exactly one OMV `change_type`: `bugfix`, `feature`, `refactor`, `docs`, or `chore`.",
+        "- [ ] Run `omv sync --check --json` and treat any required target drift as blocking.",
+        "- [ ] If drift is expected and target files should be updated, run `omv sync --json`, then rerun `omv sync --check --json` before finalizing.",
         "- [ ] After the required finish-work checks pass, run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <change_type> --json`.",
+        "- [ ] Do not treat `finalize-boundary` as target sync: non-semantic change types record a no-op finalization and do not write target files.",
         "- [ ] If `change_type` is unresolved, leave OMV in pending/manual-action state; do not infer a value or call `finalize-task` directly with guessed fields.",
     ]
     .join("\n")
@@ -925,6 +928,9 @@ mod tests {
 
         assert_eq!(once, twice);
         assert_eq!(twice.matches("OMV-MANAGED-BEGIN").count(), 1);
+        assert!(twice.contains("omv sync --check --json"));
+        assert!(twice.contains("omv sync --json"));
+        assert!(twice.contains("do not write target files"));
         let block = twice
             .find("OMV Finalize Boundary")
             .expect("managed block should exist");

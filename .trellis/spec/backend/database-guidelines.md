@@ -444,6 +444,10 @@ Rules:
   again
 - `noop` entries still matter; they prevent repeated finalize work from being
   re-evaluated differently later in the same completion event
+- `noop` entries do not synchronize target files. Completion-boundary workflows
+  that need to apply existing `.omv` truth to Cargo, README, ESP, or other
+  targets must run `omv sync --json` explicitly and then verify with
+  `omv sync --check --json`.
 - this file is not version truth; `.omv/state.toml` remains version truth
 
 ### 4. Validation & Error Matrix
@@ -533,6 +537,9 @@ Rules:
 - Finalize-task duplicate fingerprint test proving the second call does not bump
 - Finalize-task noop test proving non-semantic changes are audited without
   mutation
+- Finish-boundary host projection test proving generated guidance includes
+  `omv sync --check --json`, an explicit `omv sync --json` repair path, and a
+  warning that non-semantic finalize no-ops do not write target files
 
 Assertion points:
 

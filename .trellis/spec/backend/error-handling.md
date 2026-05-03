@@ -140,6 +140,7 @@ Rules:
 | finalize-task uses unsupported change/status/tests value | fail before mutation | caller fixes enum-like field values |
 | duplicate finalize fingerprint already completed | return success result without second bump | caller may treat as idempotent completion |
 | pending finalize fingerprint already moved version truth | recover by syncing current state and mark recovered success | rerun finalize safely |
+| finalize-boundary returns `noop` for non-semantic `change_type` while targets still drift | record audit only and leave target files unchanged | run `omv sync --json` intentionally, then rerun `omv sync --check --json` |
 | target manifest missing for registered existing target | fail sync for that target | repair target or rerun init |
 | unknown target `kind` | plan as unsupported without executing writes | update OMV to a binary that supports that capability |
 | malformed supported-kind target record | fail before planning writes | fix required fields or supported enum values |
@@ -211,6 +212,8 @@ Rules:
 - finalize-task invalid enum-like field returns typed validation error
 - finalize-task duplicate fingerprint returns structured success instead of
   error
+- finalize-boundary with a non-semantic change type records `noop` and does not
+  mask or repair pre-existing target drift
 - integrate status covers missing integrations state
 - integrate apply covers safe success, unsafe target failure, unsupported
   provider/capability, and partial failure

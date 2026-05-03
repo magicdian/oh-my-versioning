@@ -63,7 +63,7 @@ For each step, ask:
 | plan -> sync/check output | command-specific status drift or accidental mutation in check mode |
 | `.omv/integrations.toml` -> provider/capability plan | stale detection, unsafe file mutation, status/failure drift |
 | `.omv/ai/*` -> host adapters | stale guidance, unmanaged overwrite, or host-loader syntax breakage from misplaced OMV metadata |
-| host finish surface -> finalize-boundary helper | silent semantic inference, duplicate bump, wrong boundary source |
+| host finish surface -> target sync/finalize-boundary helper | silent semantic inference, duplicate bump, wrong boundary source, or assuming no-op finalization writes target drift |
 | typed result -> JSON envelope | automation breakage |
 | locale preference -> rendered text | hardcoded copy or missing key parity |
 
@@ -117,6 +117,18 @@ capabilities, detection snapshots, status, and failures; keep
 **Good**: require the host/agent or user to provide one explicit enum value and
 return pending/manual-action when it is missing
 
+### Mistake 1e: Treating finalize-boundary as target sync
+
+**Bad**: running `omv event finalize-boundary --change-type chore` after
+`omv sync --check --json` reported drift, then expecting Cargo, README, or ESP
+version files to be written.
+
+**Good**: treat target drift as a separate blocking condition. Run
+`omv sync --json` intentionally when `.omv` truth should be applied to target
+files, rerun `omv sync --check --json`, and only then call
+`finalize-boundary`. Non-semantic `change_type` values record a no-op
+finalization and do not write target files.
+
 ### Mistake 2: Locale split-brain
 
 **Bad**: CLI reads locale from config, but TUI keeps a different internal
@@ -146,6 +158,9 @@ Before implementation:
 - [ ] Defined how localized text is obtained
 - [ ] Defined whether JSON output contracts are affected
 - [ ] Identified whether target sync is part of the command
+- [ ] If a finish boundary calls `finalize-boundary`, defined a separate
+      `omv sync --check --json` gate and explicit `omv sync --json` repair path
+      for required target drift
 - [ ] Identified whether the target is language-based or kind-based
 - [ ] Identified unsupported parser cases and future-kind capability handling
 - [ ] Identified whether the command is plan-only, check-only, or write/apply
@@ -167,6 +182,9 @@ After implementation:
 - [ ] Tested duplicate finalize fingerprint behavior if automation can replay the event
 - [ ] Tested finalize-boundary missing `change_type` if completion-boundary
       automation changed
+- [ ] Tested finalize-boundary after pre-existing target drift and verified the
+      workflow either blocks or runs `omv sync --json`; no-op finalizations must
+      not be mistaken for target writes
 - [ ] Tested adapter refresh/install if host projections changed
 - [ ] Tested host-loader syntax for projected files with structural
       requirements, especially Codex `SKILL.md` frontmatter
