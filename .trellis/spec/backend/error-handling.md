@@ -99,6 +99,9 @@ fn apply_runtime_ntp_override(config: &mut OmvConfig, no_ntp: bool);
   successful capability writes are persisted, failed capabilities include
   stable reason codes, and the command returns non-zero when any selected
   capability fails
+- selected installed capabilities are not terminal no-ops for
+  `omv integrate apply`; they are refreshed from current `.omv/ai/*` content.
+  Refresh must preserve unmanaged host-owned text around OMV managed blocks.
 - legacy `omv adapter install/refresh/list/status` remains available during
   MVP. Where behavior overlaps with integration apply/status, it should share
   projection and status helpers rather than creating divergent semantics.
@@ -156,6 +159,7 @@ Rules:
 | Codex selected but not detected | apply may bootstrap lightweight instruction files | review generated changes |
 | targeted integration file has unsafe existing changes | skip that capability and persist failure reason | review/stash changes then rerun apply |
 | integration apply has partial capability failure | preserve successes, record failures, return non-zero | inspect status and retry |
+| selected capability is already installed | refresh the OMV-managed file or block and return an installed result | inspect generated host projection diff |
 | finalize-boundary missing `change_type` | return pending/manual-action JSON and do not call finalize-task | ask user for one enum value |
 | adapter install targets existing unmanaged host file | fail without overwriting file | move file or choose another host path |
 | `--json` requested and command fails | emit structured envelope to stderr | inspect `error.code` and `error.details` |
@@ -217,6 +221,8 @@ Rules:
 - integrate status covers missing integrations state
 - integrate apply covers safe success, unsafe target failure, unsupported
   provider/capability, and partial failure
+- integrate apply refreshes selected installed projections and does not clobber
+  unmanaged text outside managed blocks
 - legacy adapter command compatibility tests prove existing adapter commands
   remain accepted during the transition
 - finalize-boundary missing change type returns pending/manual-action without

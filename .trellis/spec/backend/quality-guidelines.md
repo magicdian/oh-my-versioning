@@ -99,6 +99,8 @@ publish secrets to GitHub Actions, docs, or generated release scripts.
 - integration storage round-trip and missing/malformed state tests
 - integration status/apply tests for no state, safe apply, unsupported
   provider/capability, unsafe target file, and partial failure
+- integration apply refresh tests for selected installed capabilities, including
+  host-owned text preservation around OMV managed blocks
 - finalize-boundary helper tests for missing change type, task resolution,
   idempotency, and no silent semantic inference
 - finish-boundary projection tests must prove target drift is checked before

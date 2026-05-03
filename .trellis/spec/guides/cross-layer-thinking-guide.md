@@ -61,7 +61,7 @@ For each step, ask:
 | `.omv` -> manifest sync | manifest drift from truth source |
 | `.omv/targets.toml` kind record -> adapter config | stringly dispatch, missing required fields, unsupported future capabilities |
 | plan -> sync/check output | command-specific status drift or accidental mutation in check mode |
-| `.omv/integrations.toml` -> provider/capability plan | stale detection, unsafe file mutation, status/failure drift |
+| `.omv/integrations.toml` -> provider/capability plan | stale detection, unsafe file mutation, status/failure drift, installed projections skipped during refresh |
 | `.omv/ai/*` -> host adapters | stale guidance, unmanaged overwrite, or host-loader syntax breakage from misplaced OMV metadata |
 | host finish surface -> target sync/finalize-boundary helper | silent semantic inference, duplicate bump, wrong boundary source, or assuming no-op finalization writes target drift |
 | typed result -> JSON envelope | automation breakage |
@@ -110,6 +110,16 @@ for init or integrate commands
 capabilities, detection snapshots, status, and failures; keep
 `.omv/adapters.toml` as legacy projection recovery metadata
 
+### Mistake 1c.1: Treating installed integrations as immutable
+
+**Bad**: skipping selected capabilities with `status = "installed"` in
+`omv integrate apply`, leaving projected host files stale after `.omv/ai/*` or
+managed block content changes.
+
+**Good**: treat `omv integrate apply` as apply-or-refresh for all selected
+non-failed capabilities. Refresh only OMV-owned files or managed blocks and
+preserve host-owned text around managed blocks.
+
 ### Mistake 1d: Treating finalize-boundary as a semantic classifier
 
 **Bad**: inferring `change_type` from changed files or commit messages
@@ -154,6 +164,8 @@ Before implementation:
 - [ ] Identified whether `.omv/integrations.toml` is read or written
 - [ ] Identified whether the flow touches provider detection, selected
       capabilities, capability status, or failure reasons
+- [ ] If integration projection content changes, verified selected installed
+      capabilities refresh from `.omv/ai/*` rather than being skipped
 - [ ] Defined the exact time source and fallback path
 - [ ] Defined how localized text is obtained
 - [ ] Defined whether JSON output contracts are affected
@@ -179,6 +191,8 @@ After implementation:
 - [ ] Tested missing and malformed `.omv/integrations.toml` if integration
       paths changed
 - [ ] Tested partial integration apply failure and status retry behavior
+- [ ] Tested selected installed integration refresh and host-owned text
+      preservation around managed blocks
 - [ ] Tested duplicate finalize fingerprint behavior if automation can replay the event
 - [ ] Tested finalize-boundary missing `change_type` if completion-boundary
       automation changed

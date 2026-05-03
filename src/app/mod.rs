@@ -1007,9 +1007,7 @@ fn selected_integration_capabilities(
         .providers
         .iter()
         .flat_map(|provider| provider.capabilities.iter())
-        .filter(|capability| {
-            capability.selected && capability.status != "installed" && capability.status != "failed"
-        })
+        .filter(|capability| capability.selected && capability.status != "failed")
         .cloned()
         .collect()
 }
@@ -1460,7 +1458,7 @@ fn install_integration_target(
             let rendered = fs::read_to_string(source_path)?;
             if host_path.exists() {
                 let content = fs::read_to_string(&host_path).unwrap_or_default();
-                if is_omv_managed_integration_content(&content) {
+                if is_omv_managed_integration_file(&content) {
                     write_integration_managed_file(&host_path, target.source_rel, &rendered)?;
                     Ok(crate::core::adapter::AdapterTargetMode::Materialize)
                 } else {
@@ -1543,6 +1541,10 @@ fn replace_or_append_integration_block(
 
 fn is_omv_managed_integration_content(content: &str) -> bool {
     content.contains("<!-- OMV-MANAGED-FILE") || content.contains(MANAGED_BEGIN_PREFIX)
+}
+
+fn is_omv_managed_integration_file(content: &str) -> bool {
+    content.trim_start().starts_with("<!-- OMV-MANAGED-FILE")
 }
 
 fn record_adapter_target(

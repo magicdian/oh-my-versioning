@@ -804,6 +804,133 @@ fn integrate_apply_installs_trellis_finalize_boundary_managed_block() {
     cleanup_project_root(&project_root);
 }
 
+#[test]
+fn integrate_apply_refreshes_installed_capabilities() {
+    let project_root = temp_project_root("integrate-apply-refresh-installed");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/finish-work"))
+        .expect("finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/finish-work/SKILL.md"),
+        "# Finish Work\n\n## Checklist\n\n<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->\n## OMV Finalize Boundary\n\n- [ ] stale finalize guidance\n<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("finish-work surface should write");
+    fs::write(
+        project_root.join("AGENTS.md"),
+        "# Existing Instructions\n\n<!-- OMV-MANAGED-BEGIN:integration-codex-project-instructions -->\nstale codex guidance\n<!-- OMV-MANAGED-END:integration-codex-project-instructions -->\n\nKeep this host-owned section.\n",
+    )
+    .expect("agents file should write");
+    fs::create_dir_all(project_root.join(".codex/skills/omv-versioning"))
+        .expect("codex skill dir should be created");
+    fs::write(
+        project_root.join(".codex/skills/omv-versioning/SKILL.md"),
+        "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/SKILL.md contract=1 -->\nstale skill\n",
+    )
+    .expect("codex skill should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    true,
+                    true,
+                    &[
+                        (
+                            IntegrationCapability::ProjectInstructions,
+                            true,
+                            IntegrationCapabilityStatus::Installed,
+                        ),
+                        (
+                            IntegrationCapability::HostSkill,
+                            true,
+                            IntegrationCapabilityStatus::Installed,
+                        ),
+                    ],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[
+                        (
+                            IntegrationCapability::SpecGuide,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::SpecIndexSnippet,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::FinalizeBoundary,
+                            true,
+                            IntegrationCapabilityStatus::Installed,
+                        ),
+                    ],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("installed capabilities should refresh");
+
+        assert!(output.message.contains("\"succeeded\": 3"));
+        assert!(
+            output
+                .message
+                .contains("\"capability\": \"project-instructions\"")
+        );
+        assert!(
+            output
+                .message
+                .contains("\"capability\": \"finalize-boundary\"")
+        );
+    });
+
+    let finish_work = fs::read_to_string(project_root.join(".agents/skills/finish-work/SKILL.md"))
+        .expect("finish-work surface should exist");
+    assert!(!finish_work.contains("stale finalize guidance"));
+    assert!(finish_work.contains("omv sync --check --json"));
+    assert!(finish_work.contains("do not write target files"));
+
+    let agents =
+        fs::read_to_string(project_root.join("AGENTS.md")).expect("agents file should exist");
+    assert!(agents.contains("# Existing Instructions"));
+    assert!(agents.contains("Keep this host-owned section."));
+    assert!(!agents.contains("stale codex guidance"));
+    assert!(agents.contains("OMV Codex Adapter"));
+
+    let codex_skill =
+        fs::read_to_string(project_root.join(".codex/skills/omv-versioning/SKILL.md"))
+            .expect("codex skill should exist");
+    assert!(!codex_skill.contains("stale skill"));
+    assert!(codex_skill.starts_with("---\n"));
+    assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
+
+    cleanup_project_root(&project_root);
+}
+
 fn integration_provider(
     provider: IntegrationProvider,
     selected: bool,
