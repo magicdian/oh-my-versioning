@@ -504,3 +504,37 @@ Added Trellis 0.5 finish-work path compatibility, backup-only mismatch detection
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Migrate Trellis to v0.5.7
+
+**Date**: 2026-05-08
+**Task**: Migrate Trellis to v0.5.7
+**Branch**: `dev`
+
+### Summary
+
+Verified Trellis 0.5.7 migration, OMV version sync, integration status, retired command cleanup, agent rename references, and Rust quality checks; archived the migration task.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `61976d5` | (see git log) |
+| `4c22044` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

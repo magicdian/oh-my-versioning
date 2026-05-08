@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-05-08
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~506 | Active |
+| `journal-1.md` | ~540 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-05-08 | Migrate Trellis to v0.5.7 | `61976d5`, `4c22044` | `dev` |
 | 13 | 2026-05-08 | Trellis 0.5 OMV integration compatibility | `a0b4756`, `0ab384a` | `dev` |
 | 12 | 2026-05-03 | Refresh installed OMV integrations | `3b08027` | `dev` |
 | 11 | 2026-05-02 | Release distribution pipeline | `244905c`, `91e5681` | `dev` |
