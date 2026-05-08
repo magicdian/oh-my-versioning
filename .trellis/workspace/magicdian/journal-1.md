@@ -470,3 +470,37 @@ Implemented integrate apply refresh/reconcile for selected installed capabilitie
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Trellis 0.5 OMV integration compatibility
+
+**Date**: 2026-05-08
+**Task**: Trellis 0.5 OMV integration compatibility
+**Branch**: `dev`
+
+### Summary
+
+Added Trellis 0.5 finish-work path compatibility, backup-only mismatch detection, version 2605.8.1, and a pinned wiremux 2605.8.1 external scenario.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a0b4756` | (see git log) |
+| `0ab384a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
