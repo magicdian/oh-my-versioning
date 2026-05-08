@@ -66,5 +66,5 @@ max_journal_lines: 2000
 # other platforms ignore it. Default ("sub-agent") preserves existing
 # behavior, so nothing changes unless you uncomment the block below.
 #
-# codex:
-#   dispatch_mode: sub-agent  # or "inline" to let the main agent edit code directly
+codex:
+  dispatch_mode: inline  # or "inline" to let the main agent edit code directly
