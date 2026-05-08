@@ -1,0 +1,6 @@
+{"file": ".opencode/commands/trellis/finish-work.md", "reason": "Finish work checklist"}
+{"file": ".agents/skills/check/SKILL.md", "reason": "Code quality check spec"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify required integration tests and quality gate"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Verify integration persistence and projection contract"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify stable failure/hint behavior"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify status/apply consistency across integration flow"}

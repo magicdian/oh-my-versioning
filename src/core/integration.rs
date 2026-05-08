@@ -213,7 +213,10 @@ pub fn mvp_provider_descriptors() -> Vec<IntegrationProviderDescriptor> {
                     capability: IntegrationCapability::FinalizeBoundary,
                     default_selected: true,
                     recommended: true,
-                    target_paths: vec![String::from(".agents/skills/finish-work/SKILL.md")],
+                    target_paths: vec![
+                        String::from(".agents/skills/trellis-finish-work/SKILL.md"),
+                        String::from(".agents/skills/finish-work/SKILL.md"),
+                    ],
                 },
             ],
         },

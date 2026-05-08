@@ -1,0 +1,8 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend development guide"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "Integration orchestration boundaries"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "Integration persistence and host projection contracts"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Integration failure/status behavior"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Backend quality and integration tests"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer integration status/apply flow"}
+{"file": ".trellis/spec/guides/code-reuse-thinking-guide.md", "reason": "Avoid duplicated provider path matrices"}

@@ -805,6 +805,289 @@ fn integrate_apply_installs_trellis_finalize_boundary_managed_block() {
 }
 
 #[test]
+fn integrate_apply_prefers_trellis_05_finish_work_surface() {
+    let project_root = temp_project_root("integrate-apply-finalize-boundary-05");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("trellis 0.5 finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "# Trellis Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("trellis 0.5 finish-work surface should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Trellis,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::FinalizeBoundary,
+                    true,
+                    IntegrationCapabilityStatus::Pending,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("trellis 0.5 finalize-boundary apply should succeed");
+
+        assert!(output.message.contains("\"status\": \"installed\""));
+        assert!(
+            output
+                .message
+                .contains(".agents/skills/trellis-finish-work/SKILL.md")
+        );
+    });
+
+    assert_file_contains(
+        &project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work",
+    );
+    assert!(
+        !project_root
+            .join(".agents/skills/finish-work/SKILL.md")
+            .exists()
+    );
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_status_warns_when_trellis_finalize_block_is_only_in_legacy_path() {
+    let project_root = temp_project_root("integrate-status-finalize-boundary-mixed");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/finish-work"))
+        .expect("legacy finish-work skill dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("trellis 0.5 finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/finish-work/SKILL.md"),
+        "# Finish Work\n\n<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->\n## OMV Finalize Boundary\n\n- [ ] stale legacy guidance\n<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->\n",
+    )
+    .expect("legacy finish-work surface should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "# Trellis Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("trellis 0.5 finish-work surface should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Trellis,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::FinalizeBoundary,
+                    true,
+                    IntegrationCapabilityStatus::Installed,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Status,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("status should report mixed migration state without mutating");
+
+        assert!(output.message.contains("\"status\": \"pending\""));
+        assert!(output.message.contains("trellis-finish-work-path-mismatch"));
+        assert!(output.message.contains("omv integrate apply"));
+    });
+
+    let trellis_05 =
+        fs::read_to_string(project_root.join(".agents/skills/trellis-finish-work/SKILL.md"))
+            .expect("trellis 0.5 finish-work surface should exist");
+    assert!(!trellis_05.contains("OMV-MANAGED-BEGIN"));
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_repairs_trellis_finalize_block_from_legacy_to_05_path() {
+    let project_root = temp_project_root("integrate-apply-finalize-boundary-mixed");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/finish-work"))
+        .expect("legacy finish-work skill dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("trellis 0.5 finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/finish-work/SKILL.md"),
+        "# Finish Work\n\n<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->\n## OMV Finalize Boundary\n\n- [ ] stale legacy guidance\n<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->\n",
+    )
+    .expect("legacy finish-work surface should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "# Trellis Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("trellis 0.5 finish-work surface should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Trellis,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::FinalizeBoundary,
+                    true,
+                    IntegrationCapabilityStatus::Installed,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("apply should repair the active Trellis 0.5 finish-work surface");
+
+        assert!(output.message.contains("\"status\": \"installed\""));
+        assert!(
+            output
+                .message
+                .contains(".agents/skills/trellis-finish-work/SKILL.md")
+        );
+    });
+
+    assert_file_contains(
+        &project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work",
+    );
+    assert_file_contains(
+        &project_root.join(".agents/skills/finish-work/SKILL.md"),
+        "stale legacy guidance",
+    );
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_status_warns_when_trellis_finalize_block_is_only_in_backup() {
+    let project_root = temp_project_root("integrate-status-finalize-boundary-backup");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("trellis 0.5 finish-work skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "# Trellis Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("trellis 0.5 finish-work surface should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md.backup"),
+        "# Trellis Finish Work\n\n<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->\n## OMV Finalize Boundary\n\n- [ ] stale backup guidance\n<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->\n",
+    )
+    .expect("trellis 0.5 finish-work backup should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Trellis,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::FinalizeBoundary,
+                    true,
+                    IntegrationCapabilityStatus::Installed,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Status,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("status should report backup-only migration state");
+
+        assert!(output.message.contains("\"status\": \"pending\""));
+        assert!(output.message.contains("trellis-finish-work-path-mismatch"));
+        assert!(
+            output
+                .message
+                .contains(".agents/skills/trellis-finish-work/SKILL.md.backup")
+        );
+        assert!(output.message.contains("omv integrate apply"));
+    });
+
+    let trellis_05 =
+        fs::read_to_string(project_root.join(".agents/skills/trellis-finish-work/SKILL.md"))
+            .expect("trellis 0.5 finish-work surface should exist");
+    assert!(!trellis_05.contains("OMV-MANAGED-BEGIN"));
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
 fn integrate_apply_refreshes_installed_capabilities() {
     let project_root = temp_project_root("integrate-apply-refresh-installed");
     let omv_root = project_root.join(".omv");

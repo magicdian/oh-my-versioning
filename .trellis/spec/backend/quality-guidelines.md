@@ -101,6 +101,10 @@ publish secrets to GitHub Actions, docs, or generated release scripts.
   provider/capability, unsafe target file, and partial failure
 - integration apply refresh tests for selected installed capabilities, including
   host-owned text preservation around OMV managed blocks
+- integration compatibility tests for Trellis finalize-boundary path resolution:
+  Trellis 0.5 `trellis-finish-work`, Trellis 0.4 `finish-work`, and mixed
+  migration or backup-only mismatch status that requires explicit
+  `omv integrate apply`
 - finalize-boundary helper tests for missing change type, task resolution,
   idempotency, and no silent semantic inference
 - finish-boundary projection tests must prove target drift is checked before
