@@ -1,0 +1,32 @@
+id = "wiremux-2605.8.1"
+repo = "https://github.com/magicdian/wiremux.git"
+tag = "2605.8.1"
+commit = "aae41966bea423759393b030107ecd463868737b"
+expected_version = "2605.8.1"
+expected_drift = 0
+expected_synced = 0
+expected_ok = 7
+
+[[assertions]]
+path = "VERSION"
+text = "2605.8.1"
+
+[[assertions]]
+path = ".trellis/.version"
+text = "0.5.7"
+
+[[assertions]]
+path = ".agents/skills/trellis-finish-work/SKILL.md"
+text = "OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work"
+
+[[assertions]]
+path = ".agents/skills/trellis-finish-work/SKILL.md"
+text = "omv event finalize-boundary --provider trellis --boundary finish-work"
+
+[[assertions]]
+path = ".trellis/spec/guides/omv-versioning-guide.md"
+text = "OMV Versioning Guide"
+
+[[assertions]]
+path = ".codex/skills/omv-versioning/SKILL.md"
+text = "name: omv-versioning"
