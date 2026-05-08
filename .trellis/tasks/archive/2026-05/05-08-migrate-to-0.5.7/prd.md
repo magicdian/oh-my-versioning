@@ -7,10 +7,10 @@
 
 ## Status
 
-- [ ] Review migration guide
-- [ ] Update custom files
-- [ ] Run `trellis update --migrate`
-- [ ] Test workflows
+- [x] Review migration guide
+- [x] Update custom files
+- [x] Run `trellis update --migrate`
+- [x] Test workflows
 
 ---
 
@@ -143,4 +143,3 @@ When helping a user migrate to 0.5.0-beta.5:
 4. **Run migrate**: `trellis update --migrate`. Hash-verified renames — pristine files renamed silently, customized files land on the confirm prompt (Enter = backup-rename is safe).
 
 5. **Verify clean second run**: after migrate, running `trellis update` again should report "Already up to date!". Any diff indicates a rename that didn't complete (user chose skip on a modified file).
-
