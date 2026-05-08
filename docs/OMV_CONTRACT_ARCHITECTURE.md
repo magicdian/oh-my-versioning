@@ -313,6 +313,15 @@ The helper updates only the active platform-resolved completion surface through
 an OMV-managed block. It must not take over every sibling command or make host
 files authoritative.
 
+Trellis finish-work path compatibility is capability-based, not version-string
+based. OMV prefers `.agents/skills/trellis-finish-work/SKILL.md` for Trellis
+0.5+ and preserves `.agents/skills/finish-work/SKILL.md` for Trellis 0.4. If a
+project has both files but the OMV managed block exists only in the legacy path,
+or when the block exists only in a Trellis-created `.backup` file,
+`omv integrate status` reports a repairable mismatch because Trellis may now run
+an active skill file without OMV guidance. Status must not migrate host files;
+the recovery action is an explicit `omv integrate apply`.
+
 ## Protobuf Contract
 
 OMV uses protobuf as the source for stable machine-readable contracts. The

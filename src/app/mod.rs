@@ -158,6 +158,14 @@ struct StructuredEnvelope<T: Serialize> {
 
 const MANAGED_BEGIN_PREFIX: &str = "<!-- OMV-MANAGED-BEGIN:";
 const MANAGED_END_PREFIX: &str = "<!-- OMV-MANAGED-END:";
+const TRELLIS_FINISH_WORK_V05_PATH: &str = ".agents/skills/trellis-finish-work/SKILL.md";
+const TRELLIS_FINISH_WORK_V04_PATH: &str = ".agents/skills/finish-work/SKILL.md";
+const TRELLIS_FINISH_WORK_PATHS: [&str; 2] =
+    [TRELLIS_FINISH_WORK_V05_PATH, TRELLIS_FINISH_WORK_V04_PATH];
+const TRELLIS_FINISH_WORK_BACKUP_PATHS: [&str; 2] = [
+    ".agents/skills/trellis-finish-work/SKILL.md.backup",
+    ".agents/skills/finish-work/SKILL.md.backup",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IntegrationProviderDetection {
@@ -186,6 +194,12 @@ struct IntegrationCapabilityPlan {
     selected: bool,
     status: String,
     target_paths: Vec<String>,
+    failure: Option<IntegrationFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IntegrationCapabilityProbe {
+    installed: bool,
     failure: Option<IntegrationFailure>,
 }
 
@@ -1045,6 +1059,7 @@ fn apply_integration_capability(
             "capability is not installable in this worker scope",
         );
     };
+    let target = resolve_integration_target(project_root, target);
 
     if let Err(err) = check_integration_target_safety(project_root, &target) {
         let message = err.to_string();
@@ -1178,13 +1193,15 @@ fn build_integration_status(
                             &descriptor,
                             capability_descriptor,
                         ));
-                    let installed = is_integration_capability_installed(
+                    let probe = probe_integration_capability(
                         project_root,
                         descriptor.provider,
                         capability_descriptor.capability,
                     );
-                    let status = if installed {
+                    let status = if probe.installed && probe.failure.is_none() {
                         IntegrationCapabilityStatus::Installed.as_str().to_owned()
+                    } else if probe.failure.is_some() && selected {
+                        IntegrationCapabilityStatus::Pending.as_str().to_owned()
                     } else if state_capability
                         .and_then(|candidate| candidate.failure.as_ref())
                         .is_some()
@@ -1202,7 +1219,9 @@ fn build_integration_status(
                         selected,
                         status,
                         target_paths: capability_descriptor.target_paths.clone(),
-                        failure: state_capability.and_then(|candidate| candidate.failure.clone()),
+                        failure: probe.failure.or_else(|| {
+                            state_capability.and_then(|candidate| candidate.failure.clone())
+                        }),
                     }
                 })
                 .collect();
@@ -1370,7 +1389,7 @@ fn integration_target(
         (IntegrationProvider::Trellis, IntegrationCapability::FinalizeBoundary) => {
             Some(IntegrationTarget {
                 source_rel: "contract.json",
-                host_rel: ".agents/skills/finish-work/SKILL.md",
+                host_rel: TRELLIS_FINISH_WORK_V05_PATH,
                 behavior: IntegrationTargetBehavior::TrellisFinalizeBoundary,
             })
         }
@@ -1378,24 +1397,124 @@ fn integration_target(
     }
 }
 
-fn is_integration_capability_installed(
+fn resolve_integration_target(project_root: &Path, target: IntegrationTarget) -> IntegrationTarget {
+    if target.behavior != IntegrationTargetBehavior::TrellisFinalizeBoundary {
+        return target;
+    }
+
+    IntegrationTarget {
+        host_rel: resolve_trellis_finish_work_path(project_root).unwrap_or(target.host_rel),
+        ..target
+    }
+}
+
+fn resolve_trellis_finish_work_path(project_root: &Path) -> Option<&'static str> {
+    let v05 = project_root.join(TRELLIS_FINISH_WORK_V05_PATH);
+    let v04 = project_root.join(TRELLIS_FINISH_WORK_V04_PATH);
+
+    if file_contains_trellis_finalize_block(&v05) {
+        return Some(TRELLIS_FINISH_WORK_V05_PATH);
+    }
+    if file_contains_trellis_finalize_block(&v04) && !v05.exists() {
+        return Some(TRELLIS_FINISH_WORK_V04_PATH);
+    }
+    if v05.exists() {
+        return Some(TRELLIS_FINISH_WORK_V05_PATH);
+    }
+    if v04.exists() {
+        return Some(TRELLIS_FINISH_WORK_V04_PATH);
+    }
+    None
+}
+
+fn probe_integration_capability(
     project_root: &Path,
     provider: IntegrationProvider,
     capability: IntegrationCapability,
-) -> bool {
+) -> IntegrationCapabilityProbe {
     let Some(target) = integration_target(provider, capability) else {
-        return false;
+        return IntegrationCapabilityProbe {
+            installed: false,
+            failure: None,
+        };
     };
+    if target.behavior == IntegrationTargetBehavior::TrellisFinalizeBoundary {
+        return probe_trellis_finalize_boundary(project_root);
+    }
+
     let host_path = project_root.join(target.host_rel);
     let Ok(content) = fs::read_to_string(host_path) else {
-        return false;
+        return IntegrationCapabilityProbe {
+            installed: false,
+            failure: None,
+        };
     };
-    match target.behavior {
-        IntegrationTargetBehavior::TrellisFinalizeBoundary => {
-            content.contains(adapter::TRELLIS_FINISH_WORK_BLOCK_NAME)
-        }
-        _ => is_omv_managed_integration_content(&content),
+    IntegrationCapabilityProbe {
+        installed: is_omv_managed_integration_content(&content),
+        failure: None,
     }
+}
+
+fn probe_trellis_finalize_boundary(project_root: &Path) -> IntegrationCapabilityProbe {
+    let v05_path = project_root.join(TRELLIS_FINISH_WORK_V05_PATH);
+    let v04_path = project_root.join(TRELLIS_FINISH_WORK_V04_PATH);
+    let v05_exists = v05_path.exists();
+    let v04_has_block = file_contains_trellis_finalize_block(&v04_path);
+    let v05_has_block = file_contains_trellis_finalize_block(&v05_path);
+
+    if v05_has_block {
+        return IntegrationCapabilityProbe {
+            installed: true,
+            failure: None,
+        };
+    }
+
+    if v04_has_block && v05_exists {
+        return trellis_finalize_boundary_mismatch(
+            TRELLIS_FINISH_WORK_V04_PATH,
+            "Trellis may now run the new skill path",
+        );
+    }
+
+    if let Some(backup_path) = trellis_finalize_backup_with_block(project_root) {
+        return trellis_finalize_boundary_mismatch(
+            backup_path,
+            "Trellis update may have moved the previous OMV guidance into a backup file",
+        );
+    }
+
+    IntegrationCapabilityProbe {
+        installed: v04_has_block,
+        failure: None,
+    }
+}
+
+fn trellis_finalize_boundary_mismatch(
+    source_path: &str,
+    reason: &str,
+) -> IntegrationCapabilityProbe {
+    IntegrationCapabilityProbe {
+        installed: false,
+        failure: Some(IntegrationFailure {
+            reason_code: String::from("trellis-finish-work-path-mismatch"),
+            display_message: format!(
+                "OMV finalize-boundary guidance is installed only in {source_path}; {reason}. Run `omv integrate apply` to refresh the active Trellis finish-work surface."
+            ),
+        }),
+    }
+}
+
+fn trellis_finalize_backup_with_block(project_root: &Path) -> Option<&'static str> {
+    TRELLIS_FINISH_WORK_BACKUP_PATHS
+        .iter()
+        .copied()
+        .find(|path| file_contains_trellis_finalize_block(&project_root.join(path)))
+}
+
+fn file_contains_trellis_finalize_block(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|content| content.contains(adapter::TRELLIS_FINISH_WORK_BLOCK_NAME))
+        .unwrap_or(false)
 }
 
 fn check_integration_target_safety(
@@ -1436,6 +1555,15 @@ fn install_integration_target(
 
     match target.behavior {
         IntegrationTargetBehavior::TrellisFinalizeBoundary => {
+            if !host_path.exists() {
+                return Err(AdapterError::Unsupported {
+                    reason: format!(
+                        "no Trellis finish-work skill surface found; expected one of {}. Run Trellis update/init, then rerun `omv integrate apply`.",
+                        TRELLIS_FINISH_WORK_PATHS.join(", ")
+                    ),
+                }
+                .into());
+            }
             let existing = fs::read_to_string(&host_path)?;
             let content = adapter::upsert_trellis_finish_work_finalize_block(&existing);
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;

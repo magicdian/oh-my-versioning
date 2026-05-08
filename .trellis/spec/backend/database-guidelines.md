@@ -353,7 +353,10 @@ last_detected_at = "1713446400"
 id = "finalize-boundary"
 selected = true
 status = "pending"
-target_files = [".agents/skills/finish-work/SKILL.md"]
+target_files = [
+  ".agents/skills/trellis-finish-work/SKILL.md",
+  ".agents/skills/finish-work/SKILL.md",
+]
 
 [providers.capabilities.failure]
 reason_code = "target_file_dirty"
@@ -414,6 +417,20 @@ fn install_integration_target(
     plan: &IntegrationCapabilityPlan,
 ) -> Result<AdapterTargetMode, OmvError>;
 
+fn probe_integration_capability(
+    project_root: &Path,
+    provider: IntegrationProvider,
+    capability: IntegrationCapability,
+) -> IntegrationCapabilityProbe;
+
+fn resolve_trellis_finish_work_path(project_root: &Path) -> Option<&'static str>;
+fn trellis_finalize_backup_with_block(project_root: &Path) -> Option<&'static str>;
+
+struct IntegrationCapabilityProbe {
+    installed: bool,
+    failure: Option<IntegrationFailure>,
+}
+
 fn is_omv_managed_integration_file(content: &str) -> bool;
 fn write_integration_managed_file(path: &Path, source_rel: &str, rendered: &str)
     -> Result<(), OmvError>;
@@ -435,6 +452,17 @@ fn write_integration_managed_block(
   `<!-- OMV-MANAGED-FILE ... -->`.
 - `ManagedBlockOnly` and `TrellisFinalizeBoundary` targets must only replace
   their OMV-managed block and must preserve host-owned text outside the block.
+- `TrellisFinalizeBoundary` must resolve Trellis finish-work surfaces by
+  preferring `.agents/skills/trellis-finish-work/SKILL.md` for Trellis 0.5+
+  while preserving `.agents/skills/finish-work/SKILL.md` for Trellis 0.4
+  compatibility. Status is read-only: when the new path exists but the OMV
+  block is only in the old path, report a repairable mismatch and tell the
+  operator to run `omv integrate apply` instead of migrating during status.
+- `TrellisFinalizeBoundary` status must also detect known Trellis update backup
+  files such as `.agents/skills/trellis-finish-work/SKILL.md.backup`. If the
+  OMV block exists only in a backup file and not in an active finish-work
+  surface, report the same repairable mismatch and leave repair to explicit
+  `omv integrate apply`.
 - `FullFileOrManagedBlock` targets use full-file refresh only when the host
   file itself starts with `<!-- OMV-MANAGED-FILE`. If the marker appears inside
   an OMV-managed block, the target must be refreshed as a block, not as a
@@ -453,6 +481,9 @@ fn write_integration_managed_block(
 | host file contains `OMV-MANAGED-BEGIN` with nested `OMV-MANAGED-FILE` text | replace only the managed block |
 | host file has host-owned text around an OMV block | preserve host-owned text byte-for-byte except surrounding newline normalization required by block replacement |
 | Trellis finish-work block exists but is stale | replace only `spec-trellis-finalize-boundary-finish-work` |
+| Trellis 0.5 and 0.4 finish-work files both exist, but the OMV block exists only in the 0.4 path | status reports pending with `trellis-finish-work-path-mismatch`; apply refreshes the 0.5 path |
+| Trellis finish-work `.backup` contains the OMV block, but active finish-work files do not | status reports pending with `trellis-finish-work-path-mismatch`; apply refreshes the active 0.5 path when present |
+| only Trellis 0.4 finish-work file exists | preserve legacy behavior and refresh the old path |
 | Codex skill file is a dedicated OMV-managed file | rewrite full file while preserving YAML frontmatter first |
 
 #### 5. Good/Base/Bad Cases
@@ -498,6 +529,9 @@ Trellis instructions.
   dedicated Codex skill file and preserves YAML frontmatter at byte 0.
 - integration test: selected installed `finalize-boundary` refresh replaces a
   stale finish-work block with current sync/check guidance.
+- integration tests: Trellis 0.5 finish-work path is preferred; Trellis 0.4
+  path remains supported; mixed migration and backup-only states report a
+  mismatch during status and are repaired only by explicit apply.
 - assertion points:
   - JSON/text output includes one installed result per refreshed capability.
   - `.omv/adapters.toml` records `managed-block` for refreshed host files that
