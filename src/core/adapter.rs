@@ -21,6 +21,7 @@ impl AdapterKind {
 pub enum AgentAdapter {
     Claude,
     Codex,
+    OpenCode,
 }
 
 impl AgentAdapter {
@@ -28,6 +29,7 @@ impl AgentAdapter {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::OpenCode => "opencode",
         }
     }
 
@@ -35,12 +37,17 @@ impl AgentAdapter {
         match value.trim() {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
+            "opencode" => Some(Self::OpenCode),
             _ => None,
         }
     }
 
     pub fn all() -> &'static [Self] {
-        const ALL: [AgentAdapter; 2] = [AgentAdapter::Claude, AgentAdapter::Codex];
+        const ALL: [AgentAdapter; 3] = [
+            AgentAdapter::Claude,
+            AgentAdapter::Codex,
+            AgentAdapter::OpenCode,
+        ];
         &ALL
     }
 }

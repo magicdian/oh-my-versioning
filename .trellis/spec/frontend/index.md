@@ -46,8 +46,8 @@ Also read:
 - V1 operator UI is a `ratatui` menuconfig-style flow for `omv init`
 - MVP init includes an integration review step after target setup and before
   automatic host-file installation attempts
-- Codex and Trellis are shown as the supported MVP providers; Claude and
-  OpenSpec stay hidden until supported
+- Codex, OpenCode, and Trellis are shown as the supported MVP providers; Claude
+  and OpenSpec stay hidden until supported
 - finalize-boundary is recommended/preselected only when Trellis is detected
   and remains explicitly toggleable by the user
 - `Space` toggles semantics; `Enter` follows `--->`; `Esc` closes popup, backs

@@ -52,6 +52,9 @@ pub fn discover_integrations(root: &Path) -> Vec<IntegrationProviderDiscovery> {
                     root.join(".codex").exists() || root.join("AGENTS.md").exists()
                 }
                 IntegrationProvider::Trellis => root.join(".trellis").exists(),
+                IntegrationProvider::OpenCode => {
+                    root.join(".opencode").exists() || root.join("AGENTS.md").exists()
+                }
             },
         })
         .collect()

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum IntegrationProvider {
     Codex,
     Trellis,
+    OpenCode,
 }
 
 impl IntegrationProvider {
@@ -12,6 +13,7 @@ impl IntegrationProvider {
         match self {
             Self::Codex => "codex",
             Self::Trellis => "trellis",
+            Self::OpenCode => "opencode",
         }
     }
 
@@ -19,6 +21,7 @@ impl IntegrationProvider {
         match value.trim() {
             "codex" => Some(Self::Codex),
             "trellis" => Some(Self::Trellis),
+            "opencode" => Some(Self::OpenCode),
             _ => None,
         }
     }
@@ -187,6 +190,25 @@ pub fn mvp_provider_descriptors() -> Vec<IntegrationProviderDescriptor> {
                     default_selected: true,
                     recommended: true,
                     target_paths: vec![String::from(".codex/skills/omv-versioning/SKILL.md")],
+                },
+            ],
+        },
+        IntegrationProviderDescriptor {
+            provider: IntegrationProvider::OpenCode,
+            kind: IntegrationProviderKind::AgentHost,
+            bootstrap_policy: IntegrationBootstrapPolicy::BootstrapLightweightHost,
+            capabilities: vec![
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::ProjectInstructions,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from("AGENTS.md")],
+                },
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::HostSkill,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from(".opencode/skills/omv-versioning/SKILL.md")],
                 },
             ],
         },

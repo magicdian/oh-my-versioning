@@ -567,7 +567,7 @@ fn integrate_apply_bootstraps_codex_and_reports_json_envelope() {
         assert!(output.message.contains("\"succeeded\": 2"));
     });
 
-    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Codex Adapter");
+    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Agent Instructions");
     assert_file_contains(
         &project_root.join(".codex/skills/omv-versioning/SKILL.md"),
         "omv-versioning",
@@ -618,7 +618,7 @@ fn integrate_apply_preserves_successful_capability_when_later_capability_fails()
         assert!(structured.contains("\"status\": \"failed\""));
     });
 
-    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Codex Adapter");
+    assert_file_contains(&project_root.join("AGENTS.md"), "OMV Agent Instructions");
     assert_file_contains(
         &project_root.join(".codex/skills/omv-versioning/SKILL.md"),
         "unmanaged skill",
@@ -1202,7 +1202,7 @@ fn integrate_apply_refreshes_installed_capabilities() {
     assert!(agents.contains("# Existing Instructions"));
     assert!(agents.contains("Keep this host-owned section."));
     assert!(!agents.contains("stale codex guidance"));
-    assert!(agents.contains("OMV Codex Adapter"));
+    assert!(agents.contains("OMV Agent Instructions"));
 
     let codex_skill =
         fs::read_to_string(project_root.join(".codex/skills/omv-versioning/SKILL.md"))

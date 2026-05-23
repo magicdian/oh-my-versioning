@@ -166,6 +166,12 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                     "bootstrap_policy": "may create lightweight instruction host files",
                     "capabilities": ["project-instructions", "host-skill"]
                 },
+                "opencode": {
+                    "provider_type": "agent",
+                    "mvp_supported": true,
+                    "bootstrap_policy": "may create lightweight instruction host files",
+                    "capabilities": ["project-instructions", "host-skill"]
+                },
                 "trellis": {
                     "provider_type": "spec",
                     "mvp_supported": true,
@@ -383,13 +389,25 @@ fn install_agent_adapter(
         }],
         AgentAdapter::Codex => vec![
             CanonicalTarget {
-                source_rel: "adapters/codex/AGENTS.md",
+                source_rel: "adapters/project-instructions.md",
                 host_rel: "AGENTS.md",
                 behavior: SourceInstallBehavior::FullFileOrManagedBlock,
             },
             CanonicalTarget {
                 source_rel: "adapters/codex/SKILL.md",
                 host_rel: ".codex/skills/omv-versioning/SKILL.md",
+                behavior: SourceInstallBehavior::DedicatedFile,
+            },
+        ],
+        AgentAdapter::OpenCode => vec![
+            CanonicalTarget {
+                source_rel: "adapters/project-instructions.md",
+                host_rel: "AGENTS.md",
+                behavior: SourceInstallBehavior::FullFileOrManagedBlock,
+            },
+            CanonicalTarget {
+                source_rel: "adapters/opencode/SKILL.md",
+                host_rel: ".opencode/skills/omv-versioning/SKILL.md",
                 behavior: SourceInstallBehavior::DedicatedFile,
             },
         ],
@@ -871,6 +889,45 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "## OMV",
                 "",
                 "- [OMV Versioning Guide](./omv-versioning-guide.md) | Managed version and integration source rules",
+            ]
+            .join("\n"),
+        ),
+        (
+            "adapters/project-instructions.md",
+            [
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->",
+                "# OMV Agent Instructions",
+                "",
+                "Read `./.omv/ai/instructions.md` before touching project versions.",
+                "",
+                "- Use `omv current --json` to inspect the managed version.",
+                "- Use `omv plan --json` before editing version-sensitive surfaces.",
+                "- Use `omv sync --check --json` to verify target drift without writing.",
+                "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.",
+                "- At finalize boundaries, call the OMV finalize-boundary helper from `.omv/ai/contract.json` only after tests pass and only with an explicit `change_type`.",
+                "- Use `omv bump --json` to advance the managed version.",
+                "- Do not edit native manifest versions directly.",
+                "- Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.",
+            ]
+            .join("\n"),
+        ),
+        (
+            "adapters/opencode/SKILL.md",
+            [
+                "---",
+                "name: omv-versioning",
+                "description: \"Use OMV as the version source of truth for this project.\"",
+                "---",
+                "",
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/opencode/SKILL.md contract=1 -->",
+                "",
+                "1. Read `./.omv/ai/instructions.md`.",
+                "2. Use `omv current --json` to inspect current version truth.",
+                "3. Use `omv plan --json` or `omv sync --check --json` before changing version-sensitive files.",
+                "4. Use `omv integrate status --json` to inspect host integration state and `omv integrate apply --json` to apply selected capabilities where available.",
+                "5. At completion boundaries, call the OMV finalize-boundary helper from `./.omv/ai/contract.json` only with an explicit `change_type`; ask the user when the value is missing.",
+                "6. Use `omv bump --json` to mutate version truth.",
+                "7. Do not hand-edit manifest versions or treat host adapter files as authority.",
             ]
             .join("\n"),
         ),

@@ -68,8 +68,14 @@ Also read:
   commands remain temporary MVP compatibility commands where behavior overlaps.
 - `.omv/targets.toml` uses a flat target list in V1.
 - MVP integration providers are internal registry entries, not a public plugin
-  runtime. Codex and Trellis are the supported MVP providers; Claude and
-  OpenSpec remain outside the init UI support matrix.
+  runtime. Codex, OpenCode, and Trellis are the supported MVP providers; Claude
+  and OpenSpec remain outside the init UI support matrix.
+- `ProjectInstructions` managed blocks in shared host files (e.g. `AGENTS.md`)
+  use a provider-agnostic block identifier (`integration-project-instructions`)
+  so multiple agent hosts sharing the same host file do not produce duplicate
+  content. Each capability's block is keyed by `integration-{capability}` for
+  shared capabilities, and `integration-{provider}-{capability}` for
+  provider-specific ones.
 - i18n is mandatory for CLI and init TUI from the first implementation.
 - machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system
