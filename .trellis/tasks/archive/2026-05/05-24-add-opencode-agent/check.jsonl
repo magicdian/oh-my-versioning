@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify new provider follows integration provider architecture and state contracts"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Verify i18n keys added for both en-US and zh-CN"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing bar and forbidden patterns for Rust code"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Verify TUI detection, rendering, and draft state for new provider"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer consistency: core enum → adapter sources → ui detection → i18n labels"}
