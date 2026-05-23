@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
-- **Last Active**: 2026-05-08
+- **Total Sessions**: 15
+- **Last Active**: 2026-05-24
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~540 | Active |
+| `journal-1.md` | ~574 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 15 | 2026-05-24 | feat: add OpenCode agent host with unified ProjectInstructions block | `3c43936`, `581415d` | `dev` |
 | 14 | 2026-05-08 | Migrate Trellis to v0.5.7 | `61976d5`, `4c22044` | `dev` |
 | 13 | 2026-05-08 | Trellis 0.5 OMV integration compatibility | `a0b4756`, `0ab384a` | `dev` |
 | 12 | 2026-05-03 | Refresh installed OMV integrations | `3b08027` | `dev` |

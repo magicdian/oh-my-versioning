@@ -538,3 +538,37 @@ Verified Trellis 0.5.7 migration, OMV version sync, integration status, retired 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: feat: add OpenCode agent host with unified ProjectInstructions block
+
+**Date**: 2026-05-24
+**Task**: feat: add OpenCode agent host with unified ProjectInstructions block
+**Branch**: `dev`
+
+### Summary
+
+Added OpenCode as MVP IntegrationProvider alongside Codex. Unified ProjectInstructions managed block to be provider-agnostic (integration-project-instructions) with automatic migration from old integration-codex-project-instructions blocks. Added detection, i18n labels, canonical sources, and contract.json entry.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3c43936` | (see git log) |
+| `581415d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
