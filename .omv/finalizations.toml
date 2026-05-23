@@ -1,0 +1,14 @@
+schema_version = 1
+
+[[entries]]
+task_id = "05-24-add-opencode-agent"
+fingerprint = "finalize-boundary:05-24-add-opencode-agent:trellis-finish-work:813f33b98723440a"
+change_type = "feature"
+task_status = "done"
+tests_status = "passed"
+source = "trellis-finish-work"
+outcome = "bumped"
+reason = "semantic-change"
+version_before = "2605.8.1"
+version_after = "2605.23.1"
+recorded_at = "1779559316"
