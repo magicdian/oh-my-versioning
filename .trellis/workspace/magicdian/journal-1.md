@@ -572,3 +572,37 @@ Added OpenCode as MVP IntegrationProvider alongside Codex. Unified ProjectInstru
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: feat: Trellis version detection and Phase 3.4 finalize-boundary convention
+
+**Date**: 2026-05-24
+**Task**: feat: Trellis version detection and Phase 3.4 finalize-boundary convention
+**Branch**: `dev`
+
+### Summary
+
+Added Trellis version detection from .trellis/.version (detect_trellis_version, TrellisVersionInfo). Moved finalize-boundary timing from /finish-work to Phase 3.4 commit confirmation. Updated trellis/guide.md, project-instructions.md, and instructions.md with version-aware guidance: v0.5+ requires explicit call during commit; v0.4 stays backward-compatible.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `827c65a` | (see git log) |
+| `d4a3d92` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
