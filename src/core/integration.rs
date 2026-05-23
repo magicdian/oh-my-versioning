@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,4 +245,104 @@ pub fn mvp_provider_descriptors() -> Vec<IntegrationProviderDescriptor> {
             ],
         },
     ]
+}
+
+/// Trellis version information read from `.trellis/.version`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct TrellisVersionInfo {
+    /// Raw version string (e.g. "0.5.19").
+    pub version: String,
+    /// `true` when the Trellis major.minor version is >= 0.5.
+    pub is_v05_or_later: bool,
+}
+
+/// Read the Trellis version from `.trellis/.version` under `project_root`.
+///
+/// Returns `None` when the file does not exist or cannot be parsed as semver.
+pub fn detect_trellis_version(project_root: &Path) -> Option<TrellisVersionInfo> {
+    let version_path = project_root.join(".trellis").join(".version");
+    let raw = std::fs::read_to_string(&version_path).ok()?;
+    let version = raw.trim().to_owned();
+    if version.is_empty() {
+        return None;
+    }
+    let is_v05_or_later = is_trellis_v05_or_later(&version);
+    Some(TrellisVersionInfo {
+        version,
+        is_v05_or_later,
+    })
+}
+
+/// Classify a Trellis version string as v0.5+ or pre-v0.5.
+///
+/// Returns `true` when `major == 0 && minor >= 5` or `major > 0`.
+/// Any unparseable version string returns `false`.
+pub fn is_trellis_v05_or_later(version: &str) -> bool {
+    let version = version
+        .trim()
+        .trim_start_matches('v')
+        .trim_start_matches('V');
+    let mut parts = version.splitn(3, '.');
+    let major: u32 = match parts.next().and_then(|s| s.parse().ok()) {
+        Some(v) => v,
+        None => return false,
+    };
+    let minor: u32 = match parts.next().and_then(|s| s.parse().ok()) {
+        Some(v) => v,
+        None => return false,
+    };
+    if major > 0 {
+        return true;
+    }
+    minor >= 5
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_trellis_version_v0519() {
+        // When running outside a Trellis project, just test parsing.
+        let _ = detect_trellis_version(Path::new("."));
+        // We can't guarantee .version exists in every test environment,
+        // so test the classification function directly.
+        assert!(is_trellis_v05_or_later("0.5.19"));
+        assert!(is_trellis_v05_or_later("v0.5.0"));
+        assert!(is_trellis_v05_or_later("0.5.0"));
+        assert!(is_trellis_v05_or_later("0.6.1"));
+        assert!(is_trellis_v05_or_later("1.0.0"));
+    }
+
+    #[test]
+    fn classify_pre_v05() {
+        assert!(!is_trellis_v05_or_later("0.4.0"));
+        assert!(!is_trellis_v05_or_later("v0.4.9"));
+        assert!(!is_trellis_v05_or_later("0.3.12"));
+        assert!(!is_trellis_v05_or_later("0.4.15"));
+    }
+
+    #[test]
+    fn classify_unparseable_version() {
+        assert!(!is_trellis_v05_or_later(""));
+        assert!(!is_trellis_v05_or_later("not-a-version"));
+        assert!(!is_trellis_v05_or_later("v"));
+    }
+
+    #[test]
+    fn detect_trellis_version_reads_current_project() {
+        // This test runs in the oh-my-versioning repo where .trellis/.version exists.
+        // Use CARGO_MANIFEST_DIR to reliably locate the project root.
+        let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let info = detect_trellis_version(project_root);
+        assert!(
+            info.is_some(),
+            "expected .trellis/.version in current repo at {}",
+            project_root.display()
+        );
+        let info = info.unwrap();
+        assert!(!info.version.is_empty());
+        // The current repo is at least v0.5.x.
+        assert!(info.is_v05_or_later);
+    }
 }

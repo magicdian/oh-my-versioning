@@ -76,6 +76,18 @@ Also read:
   content. Each capability's block is keyed by `integration-{capability}` for
   shared capabilities, and `integration-{provider}-{capability}` for
   provider-specific ones.
+- Trellis version is detected via `.trellis/.version` (semver string).
+  `detect_trellis_version()` returns `TrellisVersionInfo { version, is_v05_or_later }`.
+  v0.4.x (pre-skill-architecture) and v0.5.x+ (skill-first) share the same
+  `FinalizeBoundary` capability but differ in when the host workflow triggers
+  it.
+- The OMV `finalize-boundary` helper should be called during Phase 3.4 commit
+  confirmation (when the user confirms a commit), not deferred to
+  `/trellis:finish-work`. This ensures each completed unit of work produces a
+  distinct version bump; the AI instructions in `.omv/ai/adapters/trellis/guide.md`
+  and `.omv/ai/adapters/project-instructions.md` describe this convention for
+  v0.5+ projects. v0.4 `/finish-work` may auto-trigger the helper as part of
+  its own workflow.
 - i18n is mandatory for CLI and init TUI from the first implementation.
 - machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system
