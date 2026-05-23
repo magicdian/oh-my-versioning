@@ -20,9 +20,9 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 
 <!-- TRELLIS:END -->
 
-<!-- OMV-MANAGED-BEGIN:integration-codex-project-instructions -->
-<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/AGENTS.md contract=1 -->
-# OMV Codex Adapter
+<!-- OMV-MANAGED-BEGIN:integration-project-instructions -->
+<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->
+# OMV Agent Instructions
 
 Read `./.omv/ai/instructions.md` before touching project versions.
 
@@ -34,4 +34,4 @@ Read `./.omv/ai/instructions.md` before touching project versions.
 - Use `omv bump --json` to advance the managed version.
 - Do not edit native manifest versions directly.
 - Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.
-<!-- OMV-MANAGED-END:integration-codex-project-instructions -->
+<!-- OMV-MANAGED-END:integration-project-instructions -->

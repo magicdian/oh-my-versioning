@@ -40,3 +40,21 @@ status = "selected"
 capability = "finalize-boundary"
 selected = false
 status = "selected"
+
+[[providers]]
+provider = "open-code"
+selected = false
+
+[providers.detection]
+detected = true
+recommended = true
+
+[[providers.capabilities]]
+capability = "project-instructions"
+selected = false
+status = "installed"
+
+[[providers.capabilities]]
+capability = "host-skill"
+selected = false
+status = "selected"

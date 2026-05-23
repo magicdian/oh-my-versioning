@@ -8,7 +8,7 @@ source_contract_version = 1
 
 [[installations.targets]]
 path = "AGENTS.md"
-source_path = ".omv/ai/adapters/codex/AGENTS.md"
+source_path = ".omv/ai/adapters/project-instructions.md"
 mode = "managed-block"
 
 [[installations.targets]]
