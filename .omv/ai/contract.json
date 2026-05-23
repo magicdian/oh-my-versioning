@@ -136,15 +136,6 @@
         "mvp_supported": true,
         "provider_type": "agent"
       },
-      "opencode": {
-        "bootstrap_policy": "may create lightweight instruction host files",
-        "capabilities": [
-          "project-instructions",
-          "host-skill"
-        ],
-        "mvp_supported": true,
-        "provider_type": "agent"
-      },
       "openspec": {
         "hidden_from_init": true,
         "mvp_supported": false,
