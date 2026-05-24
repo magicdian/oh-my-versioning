@@ -90,7 +90,10 @@ impl LogicalDate {
                 TimeError::InvalidDateFormat(format!("system clock before unix epoch: {err}"))
             })?;
         let unix_seconds = duration.as_secs() as i64;
-        Ok(Self::from_unix_seconds_with_offset(unix_seconds, offset_hours))
+        Ok(Self::from_unix_seconds_with_offset(
+            unix_seconds,
+            offset_hours,
+        ))
     }
 
     pub fn from_unix_days(days_since_epoch: i64) -> Self {
