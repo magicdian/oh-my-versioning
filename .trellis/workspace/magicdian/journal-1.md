@@ -606,3 +606,37 @@ Added Trellis version detection from .trellis/.version (detect_trellis_version, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: fix: apply timezone offset to logical date computation
+
+**Date**: 2026-05-24
+**Task**: fix: apply timezone offset to logical date computation
+**Branch**: `dev`
+
+### Summary
+
+Fixed the bug where config.timezone='UTC+8' was never applied to date computation. Added parse_timezone_offset_hours(), LogicalDate::from_unix_seconds_with_offset(), and unix_seconds() to TimeSource trait. validate_current_date() and ensure_state_exists() now apply timezone offset correctly — NTP UTC 23rd 18:28 +8h → logical date 24th.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bdfbfd0` | (see git log) |
+| `15abe04` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
