@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
-- **Last Active**: 2026-05-03
+- **Total Sessions**: 17
+- **Last Active**: 2026-05-24
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~472 | Active |
+| `journal-1.md` | ~642 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,11 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-05-24 | fix: apply timezone offset to logical date computation | `bdfbfd0`, `15abe04` | `dev` |
+| 16 | 2026-05-24 | feat: Trellis version detection and Phase 3.4 finalize-boundary convention | `827c65a`, `d4a3d92` | `dev` |
+| 15 | 2026-05-24 | feat: add OpenCode agent host with unified ProjectInstructions block | `3c43936`, `581415d` | `dev` |
+| 14 | 2026-05-08 | Migrate Trellis to v0.5.7 | `61976d5`, `4c22044` | `dev` |
+| 13 | 2026-05-08 | Trellis 0.5 OMV integration compatibility | `a0b4756`, `0ab384a` | `dev` |
 | 12 | 2026-05-03 | Refresh installed OMV integrations | `3b08027` | `dev` |
 | 11 | 2026-05-02 | Release distribution pipeline | `244905c`, `91e5681` | `dev` |
 | 10 | 2026-05-02 | Stable frozen proto API snapshots | `17278cc`, `5294f68` | `dev` |

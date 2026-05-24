@@ -46,6 +46,10 @@ impl TimeSource for FixedSource {
     fn today(&self) -> Result<LogicalDate, OmvError> {
         Ok(self.date)
     }
+
+    fn unix_seconds(&self) -> Result<i64, OmvError> {
+        Ok(self.date.to_unix_days() * 86_400 + 12 * 3600)
+    }
 }
 
 #[test]
@@ -91,6 +95,39 @@ fn wiremux_2604_30_3_bumps_same_day_twice_then_resets_next_day() {
     let run_root = prepare_named_run_root(&repo_root, &scenario, "bump-rollover");
 
     let result = run_bump_rollover_scenario(&repo_root, &fixture_dir, &scenario, &run_root);
+    let keep = std::env::var("OMV_EXTERNAL_KEEP").ok().as_deref() == Some("1");
+
+    match result {
+        Ok(()) if keep => {
+            eprintln!(
+                "preserved external scenario workspace: {}",
+                run_root.display()
+            );
+        }
+        Ok(()) => {
+            fs::remove_dir_all(&run_root)
+                .unwrap_or_else(|err| panic!("failed to clean {}: {err}", run_root.display()));
+        }
+        Err(message) => {
+            eprintln!(
+                "preserved failed external scenario workspace: {}",
+                run_root.display()
+            );
+            panic!("{message}");
+        }
+    }
+}
+
+#[test]
+#[ignore = "external scenario test clones pinned fixture repositories"]
+fn wiremux_2605_8_1_validates_trellis_05_7_integration() {
+    let _guard = scenario_guard();
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture_dir = repo_root.join("tests/external_scenarios/wiremux-2605.8.1");
+    let scenario = load_scenario(&fixture_dir.join("scenario.toml"));
+    let run_root = prepare_named_run_root(&repo_root, &scenario, "trellis-integration");
+
+    let result = run_trellis_integration_scenario(&repo_root, &scenario, &run_root);
     let keep = std::env::var("OMV_EXTERNAL_KEEP").ok().as_deref() == Some("1");
 
     match result {
@@ -194,6 +231,76 @@ fn run_scenario(
         "summary: {} assertions passed; {} tracked files updated",
         scenario.assertions.len(),
         updated_files.len()
+    );
+
+    Ok(())
+}
+
+fn run_trellis_integration_scenario(
+    repo_root: &Path,
+    scenario: &Scenario,
+    run_root: &Path,
+) -> Result<(), String> {
+    eprintln!("external scenario: {} Trellis 0.5 integration", scenario.id);
+    eprintln!("  repo: {}", scenario.repo);
+    eprintln!("  tag: {}", scenario.tag);
+    eprintln!("  commit: {}", scenario.commit);
+    eprintln!("  expected version: {}", scenario.expected_version);
+
+    let source_cache = step("source cache ready", || {
+        ensure_source_cache(repo_root, scenario)
+    })?;
+    eprintln!("  source cache: {}", source_cache.display());
+    step("isolated worktree cloned", || {
+        clone_worktree(&source_cache, run_root)
+    })?;
+    eprintln!("  worktree: {}", run_root.display());
+    step("checked-out commit matches scenario pin", || {
+        assert_git_commit(run_root, &scenario.commit)
+    })?;
+
+    let omv = std::env::var_os("CARGO_BIN_EXE_omv")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join("target/debug/omv"));
+    if !omv.exists() {
+        return Err(format!("OMV binary does not exist at {}", omv.display()));
+    }
+
+    let status = step("omv integrate status --json", || {
+        run_omv(&omv, run_root, &["integrate", "status", "--json"])
+    })?;
+    step(
+        "integration status reports Trellis finalize-boundary installed",
+        || {
+            assert_stdout_contains(&status, "\"command\": \"integrate.status\"")?;
+            assert_stdout_contains(&status, "\"provider\": \"trellis\"")?;
+            assert_stdout_contains(&status, "\"capability\": \"finalize-boundary\"")?;
+            assert_stdout_contains(&status, "\"status\": \"installed\"")?;
+            assert_stdout_contains(&status, "\"failure\": null")
+        },
+    )?;
+
+    let check = step("omv sync --check --json", || {
+        run_omv(&omv, run_root, &["sync", "--check", "--json"])
+    })?;
+    step("sync check reports clean target state", || {
+        assert_stdout_contains(&check, "\"command\": \"sync.check\"")?;
+        assert_stdout_contains(
+            &check,
+            &format!("\"version\": \"{}\"", scenario.expected_version),
+        )?;
+        assert_stdout_contains(&check, &format!("\"ok\": {}", scenario.expected_ok))?;
+        assert_stdout_contains(&check, "\"drift\": 0")
+    })?;
+
+    for assertion in &scenario.assertions {
+        let label = format!("assert {}", assertion.path);
+        step(&label, || assert_file_contains(run_root, assertion))?;
+    }
+
+    eprintln!(
+        "summary: Trellis integration installed; {} assertions passed",
+        scenario.assertions.len()
     );
 
     Ok(())

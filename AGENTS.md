@@ -3,16 +3,35 @@
 
 These instructions are for AI assistants working in this project.
 
-Use the `/trellis:start` command when starting a new session to:
-- Initialize your developer identity
-- Understand current project context
-- Read relevant guidelines
+This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
 
-Use `@/.trellis/` to learn:
-- Development workflow (`workflow.md`)
-- Project structure guidelines (`spec/`)
-- Developer workspace (`workspace/`)
+- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
+- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.trellis/workspace/` — per-developer journals and session traces
+- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
 
-Keep this managed block so 'trellis update' can refresh the instructions.
+If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+
+If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
+- `.agents/skills/` — reusable Trellis skills
+- `.codex/agents/` — optional custom subagents
+
+Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
 
 <!-- TRELLIS:END -->
+
+<!-- OMV-MANAGED-BEGIN:integration-project-instructions -->
+<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->
+# OMV Agent Instructions
+
+Read `./.omv/ai/instructions.md` before touching project versions.
+
+- Use `omv current --json` to inspect the managed version.
+- Use `omv plan --json` before editing version-sensitive surfaces.
+- Use `omv sync --check --json` to verify target drift without writing.
+- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.
+- During commit confirmation (when a unit of work is complete and ready to commit), call the OMV finalize-boundary helper from `.omv/ai/contract.json` only after tests pass and only with an explicit `change_type`. Do not wait until a separate finish-work step — call finalize-boundary as soon as the commit is confirmed.
+- Use `omv bump --json` to advance the managed version.
+- Do not edit native manifest versions directly.
+- Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.
+<!-- OMV-MANAGED-END:integration-project-instructions -->

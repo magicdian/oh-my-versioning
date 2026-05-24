@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify version detection and adapter source updates follow backend conventions"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Verify cross-layer: version file → parse → adapter content → AI behavior"}

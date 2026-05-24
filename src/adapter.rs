@@ -166,6 +166,12 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                     "bootstrap_policy": "may create lightweight instruction host files",
                     "capabilities": ["project-instructions", "host-skill"]
                 },
+                "opencode": {
+                    "provider_type": "agent",
+                    "mvp_supported": true,
+                    "bootstrap_policy": "may create lightweight instruction host files",
+                    "capabilities": ["project-instructions", "host-skill"]
+                },
                 "trellis": {
                     "provider_type": "spec",
                     "mvp_supported": true,
@@ -228,7 +234,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "- Inspect host integration provider/capability status with `omv integrate status --json` when that command is available.",
         "- Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.",
         "- Change the managed version with `omv bump --json`.",
-        "- At completion boundaries, use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.",
+        "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.",
         "- `.omv/targets.toml` kind-based targets can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces; update OMV if a configured kind is reported as unsupported.",
         "- Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.",
         "- Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.",
@@ -383,13 +389,25 @@ fn install_agent_adapter(
         }],
         AgentAdapter::Codex => vec![
             CanonicalTarget {
-                source_rel: "adapters/codex/AGENTS.md",
+                source_rel: "adapters/project-instructions.md",
                 host_rel: "AGENTS.md",
                 behavior: SourceInstallBehavior::FullFileOrManagedBlock,
             },
             CanonicalTarget {
                 source_rel: "adapters/codex/SKILL.md",
                 host_rel: ".codex/skills/omv-versioning/SKILL.md",
+                behavior: SourceInstallBehavior::DedicatedFile,
+            },
+        ],
+        AgentAdapter::OpenCode => vec![
+            CanonicalTarget {
+                source_rel: "adapters/project-instructions.md",
+                host_rel: "AGENTS.md",
+                behavior: SourceInstallBehavior::FullFileOrManagedBlock,
+            },
+            CanonicalTarget {
+                source_rel: "adapters/opencode/SKILL.md",
+                host_rel: ".opencode/skills/omv-versioning/SKILL.md",
                 behavior: SourceInstallBehavior::DedicatedFile,
             },
         ],
@@ -856,7 +874,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` to preview target changes.",
                 "- Use `omv sync --check --json` to verify drift without mutation.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability state where available.",
-                "- If a Trellis finalize-boundary capability is installed, call the OMV helper advertised in `.omv/ai/contract.json` after `/trellis:finish-work` succeeds; supply an explicit `change_type`.",
+                "- **Trellis v0.5+:** If the Trellis finalize-boundary capability is installed, call the OMV helper advertised in `.omv/ai/contract.json` during Phase 3.4 commit confirmation, before `/trellis:finish-work`. When the user confirms a commit during Phase 3.4, run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <type> --json`, then commit the resulting bump files. Supply an explicit `change_type`; do not infer it.",
+                "- **Trellis v0.4:** When the finalize-boundary block is present in the finish-work skill, the `/trellis:finish-work` flow may trigger `finalize-boundary` automatically. If it does not, invoke it explicitly after finish-work succeeds.",
                 "- Use `omv bump --json` for writes.",
                 "- Do not trust manifest versions as authority.",
                 "- Do not treat this guide or other host files as OMV authority.",
@@ -871,6 +890,45 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "## OMV",
                 "",
                 "- [OMV Versioning Guide](./omv-versioning-guide.md) | Managed version and integration source rules",
+            ]
+            .join("\n"),
+        ),
+        (
+            "adapters/project-instructions.md",
+            [
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->",
+                "# OMV Agent Instructions",
+                "",
+                "Read `./.omv/ai/instructions.md` before touching project versions.",
+                "",
+                "- Use `omv current --json` to inspect the managed version.",
+                "- Use `omv plan --json` before editing version-sensitive surfaces.",
+                "- Use `omv sync --check --json` to verify target drift without writing.",
+                "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.",
+                "- During commit confirmation (when a unit of work is complete and ready to commit), call the OMV finalize-boundary helper from `.omv/ai/contract.json` only after tests pass and only with an explicit `change_type`. Do not wait until a separate finish-work step — call finalize-boundary as soon as the commit is confirmed.",
+                "- Use `omv bump --json` to advance the managed version.",
+                "- Do not edit native manifest versions directly.",
+                "- Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.",
+            ]
+            .join("\n"),
+        ),
+        (
+            "adapters/opencode/SKILL.md",
+            [
+                "---",
+                "name: omv-versioning",
+                "description: \"Use OMV as the version source of truth for this project.\"",
+                "---",
+                "",
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/opencode/SKILL.md contract=1 -->",
+                "",
+                "1. Read `./.omv/ai/instructions.md`.",
+                "2. Use `omv current --json` to inspect current version truth.",
+                "3. Use `omv plan --json` or `omv sync --check --json` before changing version-sensitive files.",
+                "4. Use `omv integrate status --json` to inspect host integration state and `omv integrate apply --json` to apply selected capabilities where available.",
+                "5. At completion boundaries, call the OMV finalize-boundary helper from `./.omv/ai/contract.json` only with an explicit `change_type`; ask the user when the value is missing.",
+                "6. Use `omv bump --json` to mutate version truth.",
+                "7. Do not hand-edit manifest versions or treat host adapter files as authority.",
             ]
             .join("\n"),
         ),

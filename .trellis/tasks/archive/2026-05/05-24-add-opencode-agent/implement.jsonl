@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend module boundaries, integration provider architecture, state persistence contracts"}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "i18n catalog conventions for adding new provider labels"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Error handling patterns for new integration target logic"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "TUI state management, detection draft, provider rendering conventions"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer consistency for integration provider additions spanning core/ui/adapter layers"}

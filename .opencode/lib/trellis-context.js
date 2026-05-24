@@ -1,23 +1,18 @@
 /**
  * Trellis Context Manager
  *
- * Unified context management for OpenCode plugins.
- * Handles detection of oh-my-opencode, .claude/hooks/, and other edge cases.
- *
- * Usage:
- *   import { TrellisContext } from "./trellis-context.js"
- *   const ctx = new TrellisContext(directory)
- *   if (ctx.shouldSkipHook("session-start")) return
+ * Utility class for OpenCode plugins providing file reading,
+ * JSONL parsing, and context building capabilities.
  */
 
 import { existsSync, readFileSync, appendFileSync, readdirSync } from "fs"
-import { join } from "path"
-import { homedir, platform } from "os"
+import { isAbsolute, join } from "path"
+import { platform } from "os"
 import { execSync } from "child_process"
+import { createHash } from "crypto"
+import process from "process"
 
-// Python command: Windows uses 'python', macOS/Linux use 'python3'
 const PYTHON_CMD = platform() === "win32" ? "python" : "python3"
-
 // Debug logging
 const DEBUG_LOG = "/tmp/trellis-plugin-debug.log"
 
@@ -31,220 +26,225 @@ function debugLog(prefix, ...args) {
   }
 }
 
+function stringValue(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null
+}
+
+function sanitizeKey(raw) {
+  const safe = raw.trim().replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._-]+|[._-]+$/g, "")
+  return safe ? safe.slice(0, 160) : ""
+}
+
+function hashValue(raw) {
+  return createHash("sha256").update(raw).digest("hex").slice(0, 24)
+}
+
+function lookupString(data, keys) {
+  if (!data || typeof data !== "object") return null
+  for (const key of keys) {
+    const value = stringValue(data[key])
+    if (value) return value
+  }
+  for (const nestedKey of ["input", "properties", "event", "hook_input", "hookInput"]) {
+    const nested = data[nestedKey]
+    if (nested && typeof nested === "object") {
+      const value = lookupString(nested, keys)
+      if (value) return value
+    }
+  }
+  return null
+}
+
+function buildContextKey(platformName, kind, value) {
+  if (kind === "transcript") {
+    return `${platformName}_transcript_${hashValue(value)}`
+  }
+  const safeValue = sanitizeKey(value)
+  return safeValue ? `${platformName}_${safeValue}` : `${platformName}_${hashValue(value)}`
+}
+
+// Matches `trellis-implement`, `trellis-check`, `trellis-research` exactly.
+// Used by chat.message plugins to skip injection inside Trellis sub-agent turns.
+const TRELLIS_SUBAGENT_RE = /^trellis-(implement|check|research)$/
+
+/**
+ * Return true when the OpenCode `chat.message` input represents a Trellis
+ * sub-agent turn. `input.agent` is set by OpenCode when a Task tool spawns a
+ * child session with a custom agent (see `packages/opencode/src/tool/task.ts`).
+ */
+export function isTrellisSubagent(input) {
+  if (!input || typeof input !== "object") return false
+  const agent = typeof input.agent === "string" ? input.agent.trim() : ""
+  return TRELLIS_SUBAGENT_RE.test(agent)
+}
+
 /**
  * Trellis Context Manager
- *
- * Centralized logic for:
- * - Detecting oh-my-opencode installation
- * - Checking .claude/hooks/ presence
- * - Determining which plugin should handle each hook
  */
 export class TrellisContext {
   constructor(directory) {
     this.directory = directory
-    this._omoInstalled = null
-    this._omoHooksEnabled = null
-    this._claudeHooksPresent = {}
-
     debugLog("context", "TrellisContext initialized", { directory })
-  }
-
-  // ============================================================
-  // oh-my-opencode Detection
-  // ============================================================
-
-  /**
-   * Check if oh-my-opencode is installed
-   *
-   * Detection order:
-   * 1. Check if oh-my-opencode.json exists (most reliable)
-   * 2. Fallback: check opencode.json plugin list
-   */
-  isOmoInstalled() {
-    if (this._omoInstalled !== null) {
-      return this._omoInstalled
-    }
-
-    try {
-      const configDir = join(homedir(), ".config", "opencode")
-
-      // Method 1: Check oh-my-opencode.json existence (omo-specific config)
-      const omoConfigPath = join(configDir, "oh-my-opencode.json")
-      if (existsSync(omoConfigPath)) {
-        this._omoInstalled = true
-        debugLog("context", "omo installed: oh-my-opencode.json exists")
-        return true
-      }
-
-      // Method 2: Fallback to plugin list check
-      const configPath = join(configDir, "opencode.json")
-      if (!existsSync(configPath)) {
-        this._omoInstalled = false
-        debugLog("context", "omo not installed: no config files")
-        return false
-      }
-
-      const content = readFileSync(configPath, "utf-8")
-      const config = JSON.parse(content)
-      const plugins = config.plugin || []
-
-      this._omoInstalled = plugins.some(p =>
-        typeof p === "string" && p.toLowerCase().includes("oh-my-opencode")
-      )
-
-      debugLog("context", "omo installed (plugin list):", this._omoInstalled)
-      return this._omoInstalled
-    } catch (e) {
-      debugLog("context", "omo detection error:", e.message)
-      this._omoInstalled = false
-      return false
-    }
-  }
-
-  /**
-   * Check if omo's claude_code.hooks is enabled
-   * Reads oh-my-opencode.json or defaults to true
-   */
-  isOmoHooksEnabled() {
-    if (this._omoHooksEnabled !== null) {
-      return this._omoHooksEnabled
-    }
-
-    if (!this.isOmoInstalled()) {
-      this._omoHooksEnabled = false
-      return false
-    }
-
-    try {
-      // Check global config
-      const globalConfig = join(homedir(), ".config", "opencode", "oh-my-opencode.json")
-      if (existsSync(globalConfig)) {
-        const content = readFileSync(globalConfig, "utf-8")
-        const config = JSON.parse(content)
-        if (config.claude_code?.hooks === false) {
-          this._omoHooksEnabled = false
-          debugLog("context", "omo hooks disabled in global config")
-          return false
-        }
-      }
-
-      // Check project config
-      const projectConfig = join(this.directory, "oh-my-opencode.json")
-      if (existsSync(projectConfig)) {
-        const content = readFileSync(projectConfig, "utf-8")
-        const config = JSON.parse(content)
-        if (config.claude_code?.hooks === false) {
-          this._omoHooksEnabled = false
-          debugLog("context", "omo hooks disabled in project config")
-          return false
-        }
-      }
-
-      // Default: enabled
-      this._omoHooksEnabled = true
-      debugLog("context", "omo hooks enabled (default)")
-      return true
-    } catch (e) {
-      debugLog("context", "omo hooks detection error:", e.message)
-      this._omoHooksEnabled = true // Default to enabled
-      return true
-    }
-  }
-
-  // ============================================================
-  // .claude/hooks/ Detection
-  // ============================================================
-
-  /**
-   * Check if a specific .claude/hooks/ file exists
-   */
-  hasClaudeHook(hookName) {
-    if (hookName in this._claudeHooksPresent) {
-      return this._claudeHooksPresent[hookName]
-    }
-
-    const hookPath = join(this.directory, ".claude", "hooks", `${hookName}.py`)
-    const exists = existsSync(hookPath)
-
-    this._claudeHooksPresent[hookName] = exists
-    debugLog("context", `claude hook ${hookName}:`, exists)
-    return exists
   }
 
   // ============================================================
   // Trellis Project Detection
   // ============================================================
 
-  /**
-   * Check if this is a Trellis-managed project
-   */
   isTrellisProject() {
     return existsSync(join(this.directory, ".trellis"))
   }
 
-  /**
-   * Get current task directory from .trellis/.current-task
-   */
-  getCurrentTask() {
+  getContextKey(platformInput = null) {
+    const override = stringValue(process.env.TRELLIS_CONTEXT_ID)
+    if (override) {
+      return sanitizeKey(override) || hashValue(override)
+    }
+
+    const runID = stringValue(process.env.OPENCODE_RUN_ID)
+    if (runID) return buildContextKey("opencode", "session", runID)
+
+    const input = platformInput && typeof platformInput === "object" ? platformInput : null
+    if (!input) return null
+
+    const sessionID = lookupString(input, ["session_id", "sessionId", "sessionID"])
+    if (sessionID) return buildContextKey("opencode", "session", sessionID)
+
+    const conversationID = lookupString(input, ["conversation_id", "conversationId", "conversationID"])
+    if (conversationID) return buildContextKey("opencode", "conversation", conversationID)
+
+    const transcriptPath = lookupString(input, ["transcript_path", "transcriptPath", "transcript"])
+    if (transcriptPath) return buildContextKey("opencode", "transcript", transcriptPath)
+
+    return null
+  }
+
+  readContext(contextKey) {
     try {
-      const currentTaskPath = join(this.directory, ".trellis", ".current-task")
-      if (!existsSync(currentTaskPath)) {
-        return null
-      }
-      return readFileSync(currentTaskPath, "utf-8").trim()
+      const contextPath = join(this.directory, ".trellis", ".runtime", "sessions", `${contextKey}.json`)
+      if (!existsSync(contextPath)) return null
+      return JSON.parse(readFileSync(contextPath, "utf-8"))
     } catch {
       return null
     }
   }
 
-  // ============================================================
-  // Hook Decision Logic
-  // ============================================================
+  /**
+   * Get active task from session runtime context.
+   *
+   * Resolution order (mirrors Python `active_task.resolve_active_task`):
+   *   1. Lookup the runtime file for the input-derived context key.
+   *   2. If that misses and exactly one session runtime file exists locally,
+   *      use it (`_resolveSingleSessionFallback`). Refuses to guess when 0 or
+   *      ≥2 files exist so multi-window isolation holds.
+   */
+  getActiveTask(platformInput = null) {
+    const contextKey = this.getContextKey(platformInput)
+    if (contextKey) {
+      const context = this.readContext(contextKey)
+      const taskRef = this.normalizeTaskRef(context?.current_task || "")
+      if (taskRef) {
+        const taskDir = this.resolveTaskDir(taskRef)
+        return {
+          taskPath: taskRef,
+          source: `session:${contextKey}`,
+          stale: !taskDir || !existsSync(taskDir),
+        }
+      }
+    }
+
+    const fallback = this._resolveSingleSessionFallback()
+    if (fallback) {
+      return fallback
+    }
+
+    return { taskPath: null, source: "none", stale: false }
+  }
 
   /**
-   * Determine if our plugin should skip this hook
-   * (because omo will handle it via .claude/hooks/)
-   *
-   * @param {string} hookName - Hook name without extension (e.g., "session-start")
-   * @returns {boolean} - true if we should skip, false if we should handle
+   * Mirror of Python `_resolve_single_session_fallback`. Returns the task
+   * pointed at by the sole session runtime file when exactly one exists,
+   * else null.
    */
-  shouldSkipHook(hookName) {
-    // Not a Trellis project? Skip.
-    if (!this.isTrellisProject()) {
-      debugLog("context", `shouldSkipHook(${hookName}): skip - not Trellis project`)
-      return true
+  _resolveSingleSessionFallback() {
+    const sessionsDir = join(this.directory, ".trellis", ".runtime", "sessions")
+    if (!existsSync(sessionsDir)) return null
+
+    let files
+    try {
+      files = readdirSync(sessionsDir)
+        .filter(name => name.endsWith(".json"))
+        .sort()
+    } catch {
+      return null
+    }
+    if (files.length !== 1) return null
+
+    const sessionFile = join(sessionsDir, files[0])
+    let context
+    try {
+      context = JSON.parse(readFileSync(sessionFile, "utf-8"))
+    } catch {
+      return null
+    }
+    const taskRef = this.normalizeTaskRef(context?.current_task || "")
+    if (!taskRef) return null
+
+    const taskDir = this.resolveTaskDir(taskRef)
+    const fallbackKey = files[0].replace(/\.json$/, "")
+    return {
+      taskPath: taskRef,
+      source: `session-fallback:${fallbackKey}`,
+      stale: !taskDir || !existsSync(taskDir),
+    }
+  }
+
+  getCurrentTask(platformInput = null) {
+    return this.getActiveTask(platformInput).taskPath
+  }
+
+  normalizeTaskRef(taskRef) {
+    if (!taskRef) {
+      return ""
     }
 
-    // omo not installed? We handle it.
-    if (!this.isOmoInstalled()) {
-      debugLog("context", `shouldSkipHook(${hookName}): handle - omo not installed`)
-      return false
+    if (isAbsolute(taskRef)) {
+      return taskRef.trim()
     }
 
-    // omo installed but hooks disabled? We handle it.
-    if (!this.isOmoHooksEnabled()) {
-      debugLog("context", `shouldSkipHook(${hookName}): handle - omo hooks disabled`)
-      return false
+    let normalized = taskRef.trim().replace(/\\/g, "/")
+    while (normalized.startsWith("./")) {
+      normalized = normalized.slice(2)
     }
 
-    // omo installed + hooks enabled + .claude/hooks/ exists? Skip (omo handles).
-    if (this.hasClaudeHook(hookName)) {
-      debugLog("context", `shouldSkipHook(${hookName}): skip - omo will handle via .claude/hooks/`)
-      return true
+    if (normalized.startsWith("tasks/")) {
+      return `.trellis/${normalized}`
     }
 
-    // omo installed but no .claude/hooks/ file? We handle it.
-    debugLog("context", `shouldSkipHook(${hookName}): handle - no .claude/hooks/ file`)
-    return false
+    return normalized
+  }
+
+  resolveTaskDir(taskRef) {
+    const normalized = this.normalizeTaskRef(taskRef)
+    if (!normalized) {
+      return null
+    }
+
+    if (isAbsolute(normalized)) {
+      return normalized
+    }
+
+    if (normalized.startsWith(".trellis/")) {
+      return join(this.directory, normalized)
+    }
+
+    return join(this.directory, ".trellis", "tasks", normalized)
   }
 
   // ============================================================
   // File Reading Utilities
   // ============================================================
 
-  /**
-   * Read a file, return null on error
-   */
   readFile(filePath) {
     try {
       if (existsSync(filePath)) {
@@ -256,23 +256,21 @@ export class TrellisContext {
     return null
   }
 
-  /**
-   * Read a file relative to project directory
-   */
   readProjectFile(relativePath) {
     return this.readFile(join(this.directory, relativePath))
   }
 
-  /**
-   * Run a Python script and return output
-   */
-  runScript(scriptPath, cwd = null) {
+  runScript(scriptPath, cwd = null, contextKey = null) {
     try {
       const result = execSync(`${PYTHON_CMD} "${scriptPath}"`, {
         cwd: cwd || this.directory,
         timeout: 10000,
         encoding: "utf-8",
-        stdio: ["pipe", "pipe", "pipe"]
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          ...(contextKey ? { TRELLIS_CONTEXT_ID: contextKey } : {}),
+        },
       })
       return result || ""
     } catch {
@@ -284,12 +282,6 @@ export class TrellisContext {
   // JSONL Reading
   // ============================================================
 
-  /**
-   * Read all .md files in a directory
-   * @param {string} dirPath - Directory path relative to project root
-   * @param {number} maxFiles - Max files to read (prevent huge directories)
-   * @returns {Array<{path: string, content: string}>}
-   */
   readDirectoryMdFiles(dirPath, maxFiles = 20) {
     const results = []
     const fullPath = join(this.directory, dirPath)
@@ -339,11 +331,9 @@ export class TrellisContext {
         if (!file) continue
 
         if (entryType === "directory") {
-          // Read all .md files in directory
           const dirEntries = this.readDirectoryMdFiles(file)
           results.push(...dirEntries)
         } else {
-          // Read single file
           const fullPath = join(this.directory, file)
           const fileContent = this.readFile(fullPath)
           if (fileContent) {
@@ -357,74 +347,29 @@ export class TrellisContext {
     return results
   }
 
-  /**
-   * Build context string from file entries
-   */
   buildContextFromEntries(entries) {
     return entries.map(e => `=== ${e.path} ===\n${e.content}`).join("\n\n")
   }
 }
 
 // ============================================================
-// Context Collector (for synthetic message injection)
+// Context Collector (for session deduplication)
 // ============================================================
 
-/**
- * Simple context collector for cross-hook communication
- * Similar to oh-my-opencode's contextCollector
- */
 class ContextCollector {
   constructor() {
-    this.pending = new Map()
     this.processed = new Set()
   }
 
-  /**
-   * Store context for a session
-   */
-  store(sessionID, content) {
-    this.pending.set(sessionID, {
-      content,
-      timestamp: Date.now()
-    })
-    debugLog("collector", "stored context for session:", sessionID, "length:", content.length)
-  }
-
-  /**
-   * Check if session has pending context
-   */
-  hasPending(sessionID) {
-    return this.pending.has(sessionID)
-  }
-
-  /**
-   * Get and consume pending context
-   */
-  consume(sessionID) {
-    const pending = this.pending.get(sessionID)
-    this.pending.delete(sessionID)
-    return pending
-  }
-
-  /**
-   * Mark session as processed (for first-message-only injection)
-   */
   markProcessed(sessionID) {
     this.processed.add(sessionID)
   }
 
-  /**
-   * Check if session was already processed
-   */
   isProcessed(sessionID) {
     return this.processed.has(sessionID)
   }
 
-  /**
-   * Clear session state
-   */
   clear(sessionID) {
-    this.pending.delete(sessionID)
     this.processed.delete(sessionID)
   }
 }

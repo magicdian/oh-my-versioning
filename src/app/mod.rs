@@ -13,7 +13,6 @@ use crate::cli::{
     FinalizeBoundaryCommand, FinalizeTaskCommand, IntegrateAction, IntegrateCommand, OutputMode,
 };
 use crate::contract::registry::STRUCTURED_JSON_CONTRACT_VERSION;
-use crate::core::date::LogicalDate;
 use crate::core::finalization::{
     self, ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
 };
@@ -1352,6 +1351,19 @@ fn detect_integration_provider(
                 evidence,
             }
         }
+        IntegrationProvider::OpenCode => {
+            let mut evidence = Vec::new();
+            if project_root.join(".opencode").exists() {
+                evidence.push(String::from(".opencode"));
+            }
+            if project_root.join("AGENTS.md").exists() {
+                evidence.push(String::from("AGENTS.md"));
+            }
+            IntegrationProviderDetection {
+                detected: !evidence.is_empty(),
+                evidence,
+            }
+        }
     }
 }
 
@@ -1362,7 +1374,7 @@ fn integration_target(
     match (provider, capability) {
         (IntegrationProvider::Codex, IntegrationCapability::ProjectInstructions) => {
             Some(IntegrationTarget {
-                source_rel: "adapters/codex/AGENTS.md",
+                source_rel: "adapters/project-instructions.md",
                 host_rel: "AGENTS.md",
                 behavior: IntegrationTargetBehavior::FullFileOrManagedBlock,
             })
@@ -1372,6 +1384,20 @@ fn integration_target(
             host_rel: ".codex/skills/omv-versioning/SKILL.md",
             behavior: IntegrationTargetBehavior::DedicatedFile,
         }),
+        (IntegrationProvider::OpenCode, IntegrationCapability::ProjectInstructions) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/project-instructions.md",
+                host_rel: "AGENTS.md",
+                behavior: IntegrationTargetBehavior::FullFileOrManagedBlock,
+            })
+        }
+        (IntegrationProvider::OpenCode, IntegrationCapability::HostSkill) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/opencode/SKILL.md",
+                host_rel: ".opencode/skills/omv-versioning/SKILL.md",
+                behavior: IntegrationTargetBehavior::DedicatedFile,
+            })
+        }
         (IntegrationProvider::Trellis, IntegrationCapability::SpecGuide) => {
             Some(IntegrationTarget {
                 source_rel: "adapters/trellis/guide.md",
@@ -1615,7 +1641,11 @@ fn write_integration_managed_block(
     plan: &IntegrationCapabilityPlan,
     rendered: &str,
 ) -> Result<(), OmvError> {
-    let block_name = format!("integration-{}-{}", plan.provider, plan.capability);
+    let block_name = if plan.capability == "project-instructions" {
+        String::from("integration-project-instructions")
+    } else {
+        format!("integration-{}-{}", plan.provider, plan.capability)
+    };
     let begin = format!("{MANAGED_BEGIN_PREFIX}{block_name} -->");
     let end = format!("{MANAGED_END_PREFIX}{block_name} -->");
     let block = format!("{begin}\n{rendered}\n{end}\n");
@@ -1624,7 +1654,41 @@ fn write_integration_managed_block(
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => block,
         Err(err) => return Err(err.into()),
     };
-    storage::atomic::write_atomically(host_path, content.as_bytes())
+    storage::atomic::write_atomically(host_path, content.as_bytes())?;
+
+    // Migration: remove old provider-prefixed managed block
+    if plan.capability == "project-instructions" {
+        let old_codex_block = "integration-codex-project-instructions";
+        let old_begin = format!("{MANAGED_BEGIN_PREFIX}{old_codex_block} -->");
+        let old_end = format!("{MANAGED_END_PREFIX}{old_codex_block} -->");
+        if let Ok(existing) = fs::read_to_string(host_path)
+            && existing.find(&old_begin).is_some()
+        {
+            let cleaned = remove_managed_block_by_marker(&existing, &old_begin, &old_end);
+            storage::atomic::write_atomically(host_path, cleaned.as_bytes())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn remove_managed_block_by_marker(existing: &str, begin: &str, end: &str) -> String {
+    if let Some(start) = existing.find(begin)
+        && let Some(end_idx) = existing[start..].find(end)
+    {
+        let absolute_end = start + end_idx + end.len();
+        let mut output = String::new();
+        output.push_str(existing[..start].trim_end());
+        if absolute_end < existing.len() {
+            output.push_str("\n\n");
+            output.push_str(existing[absolute_end..].trim_start_matches('\n'));
+        }
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        return output;
+    }
+    existing.to_owned()
 }
 
 fn replace_or_append_integration_block(
@@ -1682,7 +1746,7 @@ fn record_adapter_target(
     mode: crate::core::adapter::AdapterTargetMode,
 ) -> Result<(), OmvError> {
     let mut registry = storage::adapters::load_adapters_if_exists(omv_root)?;
-    let kind = if plan.provider == "codex" {
+    let kind = if plan.provider == "codex" || plan.provider == "opencode" {
         crate::core::adapter::AdapterKind::Agent
     } else {
         crate::core::adapter::AdapterKind::Spec
@@ -2614,7 +2678,7 @@ fn ensure_state_exists(omv_root: &Path, config: &OmvConfig) -> Result<(), OmvErr
     match storage::state::load_state(omv_root) {
         Ok(_) => Ok(()),
         Err(OmvError::State(StateError::MissingState { .. })) => {
-            let today = LogicalDate::today_from_system()?;
+            let today = crate::core::time::offset_aware_system_today(config)?;
             let version = engine::format_version(today, 1, config.version_output);
             let state = OmvState {
                 schema_version: 1,
@@ -2683,6 +2747,10 @@ mod tests {
 
         fn today(&self) -> Result<LogicalDate, OmvError> {
             Ok(self.date)
+        }
+
+        fn unix_seconds(&self) -> Result<i64, OmvError> {
+            Ok(self.date.to_unix_days() * 86_400 + 12 * 3600)
         }
     }
 
@@ -2881,6 +2949,11 @@ mod tests {
                 LastTimeSource::Ntp
             }
             fn today(&self) -> Result<LogicalDate, OmvError> {
+                Err(OmvError::Ntp(NtpError::Unavailable(
+                    "forced failure".to_owned(),
+                )))
+            }
+            fn unix_seconds(&self) -> Result<i64, OmvError> {
                 Err(OmvError::Ntp(NtpError::Unavailable(
                     "forced failure".to_owned(),
                 )))

@@ -369,6 +369,7 @@ fn provider_label(provider: IntegrationProvider, catalog: &Catalog) -> String {
     let key = match provider {
         IntegrationProvider::Codex => "integration.provider.codex",
         IntegrationProvider::Trellis => "integration.provider.trellis",
+        IntegrationProvider::OpenCode => "integration.provider.opencode",
     };
     catalog.t(key)
 }

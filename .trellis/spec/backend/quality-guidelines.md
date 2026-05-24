@@ -261,12 +261,19 @@ scenario commits checked-out external project files or runtime worktrees
 - ignored bump scenario: use `run_with_runtime` to inject fixed same-day and
   next-day dates, verify same-day increments and next-day daily reset in the
   external worktree, then run `sync --check`
+- ignored host-integration scenario: checkout a pinned already-integrated
+  Trellis 0.5 fixture without overlaying `.omv`, run
+  `omv integrate status --json` and `omv sync --check --json`, and assert the
+  active `.agents/skills/trellis-finish-work/SKILL.md` contains the OMV
+  finalize-boundary managed block
 - normal test run: `cargo test --test external_scenarios` compiles and reports
   the scenarios as ignored
 - assertion points:
   - `expected_drift`, `expected_synced`, and `expected_ok`
   - scenario `commit`
   - declared target file contents
+  - Trellis `.trellis/.version` and active finish-work skill path when testing
+    host integration compatibility
   - tracked file diff summary after sync/bump
 
 ### 7. Wrong vs Correct

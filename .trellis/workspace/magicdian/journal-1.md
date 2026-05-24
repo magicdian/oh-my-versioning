@@ -470,3 +470,173 @@ Implemented integrate apply refresh/reconcile for selected installed capabilitie
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Trellis 0.5 OMV integration compatibility
+
+**Date**: 2026-05-08
+**Task**: Trellis 0.5 OMV integration compatibility
+**Branch**: `dev`
+
+### Summary
+
+Added Trellis 0.5 finish-work path compatibility, backup-only mismatch detection, version 2605.8.1, and a pinned wiremux 2605.8.1 external scenario.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a0b4756` | (see git log) |
+| `0ab384a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 14: Migrate Trellis to v0.5.7
+
+**Date**: 2026-05-08
+**Task**: Migrate Trellis to v0.5.7
+**Branch**: `dev`
+
+### Summary
+
+Verified Trellis 0.5.7 migration, OMV version sync, integration status, retired command cleanup, agent rename references, and Rust quality checks; archived the migration task.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `61976d5` | (see git log) |
+| `4c22044` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 15: feat: add OpenCode agent host with unified ProjectInstructions block
+
+**Date**: 2026-05-24
+**Task**: feat: add OpenCode agent host with unified ProjectInstructions block
+**Branch**: `dev`
+
+### Summary
+
+Added OpenCode as MVP IntegrationProvider alongside Codex. Unified ProjectInstructions managed block to be provider-agnostic (integration-project-instructions) with automatic migration from old integration-codex-project-instructions blocks. Added detection, i18n labels, canonical sources, and contract.json entry.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3c43936` | (see git log) |
+| `581415d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 16: feat: Trellis version detection and Phase 3.4 finalize-boundary convention
+
+**Date**: 2026-05-24
+**Task**: feat: Trellis version detection and Phase 3.4 finalize-boundary convention
+**Branch**: `dev`
+
+### Summary
+
+Added Trellis version detection from .trellis/.version (detect_trellis_version, TrellisVersionInfo). Moved finalize-boundary timing from /finish-work to Phase 3.4 commit confirmation. Updated trellis/guide.md, project-instructions.md, and instructions.md with version-aware guidance: v0.5+ requires explicit call during commit; v0.4 stays backward-compatible.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `827c65a` | (see git log) |
+| `d4a3d92` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 17: fix: apply timezone offset to logical date computation
+
+**Date**: 2026-05-24
+**Task**: fix: apply timezone offset to logical date computation
+**Branch**: `dev`
+
+### Summary
+
+Fixed the bug where config.timezone='UTC+8' was never applied to date computation. Added parse_timezone_offset_hours(), LogicalDate::from_unix_seconds_with_offset(), and unix_seconds() to TimeSource trait. validate_current_date() and ensure_state_exists() now apply timezone offset correctly — NTP UTC 23rd 18:28 +8h → logical date 24th.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bdfbfd0` | (see git log) |
+| `15abe04` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

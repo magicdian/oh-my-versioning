@@ -68,8 +68,32 @@ Also read:
   commands remain temporary MVP compatibility commands where behavior overlaps.
 - `.omv/targets.toml` uses a flat target list in V1.
 - MVP integration providers are internal registry entries, not a public plugin
-  runtime. Codex and Trellis are the supported MVP providers; Claude and
-  OpenSpec remain outside the init UI support matrix.
+  runtime. Codex, OpenCode, and Trellis are the supported MVP providers; Claude
+  and OpenSpec remain outside the init UI support matrix.
+- `ProjectInstructions` managed blocks in shared host files (e.g. `AGENTS.md`)
+  use a provider-agnostic block identifier (`integration-project-instructions`)
+  so multiple agent hosts sharing the same host file do not produce duplicate
+  content. Each capability's block is keyed by `integration-{capability}` for
+  shared capabilities, and `integration-{provider}-{capability}` for
+  provider-specific ones.
+- Trellis version is detected via `.trellis/.version` (semver string).
+  `detect_trellis_version()` returns `TrellisVersionInfo { version, is_v05_or_later }`.
+  v0.4.x (pre-skill-architecture) and v0.5.x+ (skill-first) share the same
+  `FinalizeBoundary` capability but differ in when the host workflow triggers
+  it.
+- The OMV `finalize-boundary` helper should be called during Phase 3.4 commit
+  confirmation (when the user confirms a commit), not deferred to
+  `/trellis:finish-work`. This ensures each completed unit of work produces a
+  distinct version bump; the AI instructions in `.omv/ai/adapters/trellis/guide.md`
+  and `.omv/ai/adapters/project-instructions.md` describe this convention for
+  v0.5+ projects. v0.4 `/finish-work` may auto-trigger the helper as part of
+  its own workflow.
+- `config.timezone` (e.g. `"UTC+8"`) is parsed via `parse_timezone_offset_hours()`
+  into an `i32` offset. `LogicalDate::from_unix_seconds_with_offset()` applies
+  the offset at second-level precision so midnight crossings produce the correct
+  local date. Both `validate_current_date()` and `ensure_state_exists()` use
+  offset-aware computation. NTP returns UTC seconds; system time also provides
+  `unix_seconds()` for offset application.
 - i18n is mandatory for CLI and init TUI from the first implementation.
 - machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system
