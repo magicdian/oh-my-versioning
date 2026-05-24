@@ -53,6 +53,26 @@ impl LogicalDate {
         format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
     }
 
+    /// Reverse of Howard Hinnant's civil date algorithm: return days since Unix epoch.
+    pub fn to_unix_days(self) -> i64 {
+        let year = self.year as i64;
+        let month = self.month as i64;
+        let day = self.day as i64;
+
+        let y = year - if month <= 2 { 1 } else { 0 };
+        let era = if y >= 0 { y } else { y - 399 } / 400;
+        let yoe = y - era * 400;
+        let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
+    }
+
+    pub fn from_unix_seconds_with_offset(unix_seconds: i64, offset_hours: i32) -> Self {
+        let adjusted_seconds = unix_seconds + (offset_hours as i64) * 3600;
+        let days_since_epoch = adjusted_seconds / 86_400;
+        Self::from_unix_days(days_since_epoch)
+    }
+
     pub fn today_from_system() -> Result<Self, OmvError> {
         let duration = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -61,6 +81,16 @@ impl LogicalDate {
             })?;
         let days_since_epoch = (duration.as_secs() / 86_400) as i64;
         Ok(Self::from_unix_days(days_since_epoch))
+    }
+
+    pub fn today_from_system_with_offset(offset_hours: i32) -> Result<Self, OmvError> {
+        let duration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|err| {
+                TimeError::InvalidDateFormat(format!("system clock before unix epoch: {err}"))
+            })?;
+        let unix_seconds = duration.as_secs() as i64;
+        Ok(Self::from_unix_seconds_with_offset(unix_seconds, offset_hours))
     }
 
     pub fn from_unix_days(days_since_epoch: i64) -> Self {
@@ -125,5 +155,65 @@ mod tests {
     fn from_unix_days_matches_epoch_start() {
         let date = LogicalDate::from_unix_days(0);
         assert_eq!(date.to_iso_string(), "1970-01-01");
+    }
+
+    #[test]
+    fn to_unix_days_roundtrips() {
+        let date = LogicalDate::parse_iso("2026-05-24").expect("date should parse");
+        let days = date.to_unix_days();
+        let roundtripped = LogicalDate::from_unix_days(days);
+        assert_eq!(roundtripped.to_iso_string(), "2026-05-24");
+    }
+
+    #[test]
+    fn to_unix_days_matches_epoch() {
+        let epoch = LogicalDate::from_unix_days(0);
+        assert_eq!(epoch.to_unix_days(), 0);
+    }
+
+    #[test]
+    fn from_unix_seconds_with_offset_utc_plus_8_late_evening() {
+        // 2026-05-23 18:28 UTC = some unix seconds
+        // We need the unix days for 2026-05-23 then add 18h28m in seconds
+        let may23_days = LogicalDate::parse_iso("2026-05-23")
+            .expect("date should parse")
+            .to_unix_days();
+        let unix_seconds = may23_days * 86_400 + 18 * 3600 + 28 * 60;
+        // With UTC+8, 18:28 UTC + 8h = 02:28 next day → 2026-05-24
+        let date = LogicalDate::from_unix_seconds_with_offset(unix_seconds, 8);
+        assert_eq!(date.to_iso_string(), "2026-05-24");
+    }
+
+    #[test]
+    fn from_unix_seconds_with_offset_utc_plus_8_early_morning() {
+        // 2026-05-24 02:00 UTC (still May 23 in UTC-5, but we're testing +8)
+        let may24_days = LogicalDate::parse_iso("2026-05-24")
+            .expect("date should parse")
+            .to_unix_days();
+        let unix_seconds = may24_days * 86_400 + 2 * 3600;
+        // With UTC+8, 02:00 UTC + 8h = 10:00 same day → 2026-05-24
+        let date = LogicalDate::from_unix_seconds_with_offset(unix_seconds, 8);
+        assert_eq!(date.to_iso_string(), "2026-05-24");
+    }
+
+    #[test]
+    fn from_unix_seconds_with_offset_zero_is_unchanged() {
+        let may24_days = LogicalDate::parse_iso("2026-05-24")
+            .expect("date should parse")
+            .to_unix_days();
+        let unix_seconds = may24_days * 86_400 + 18 * 3600;
+        let date = LogicalDate::from_unix_seconds_with_offset(unix_seconds, 0);
+        assert_eq!(date.to_iso_string(), "2026-05-24");
+    }
+
+    #[test]
+    fn from_unix_seconds_with_offset_utc_minus_5() {
+        // 2026-05-24 03:00 UTC → with UTC-5 → 2026-05-23 22:00
+        let may24_days = LogicalDate::parse_iso("2026-05-24")
+            .expect("date should parse")
+            .to_unix_days();
+        let unix_seconds = may24_days * 86_400 + 3 * 3600;
+        let date = LogicalDate::from_unix_seconds_with_offset(unix_seconds, -5);
+        assert_eq!(date.to_iso_string(), "2026-05-23");
     }
 }

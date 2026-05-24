@@ -13,7 +13,6 @@ use crate::cli::{
     FinalizeBoundaryCommand, FinalizeTaskCommand, IntegrateAction, IntegrateCommand, OutputMode,
 };
 use crate::contract::registry::STRUCTURED_JSON_CONTRACT_VERSION;
-use crate::core::date::LogicalDate;
 use crate::core::finalization::{
     self, ChangeType, FinalizationOutcome, FinalizationReason, TaskStatus, TestsStatus,
 };
@@ -2679,7 +2678,7 @@ fn ensure_state_exists(omv_root: &Path, config: &OmvConfig) -> Result<(), OmvErr
     match storage::state::load_state(omv_root) {
         Ok(_) => Ok(()),
         Err(OmvError::State(StateError::MissingState { .. })) => {
-            let today = LogicalDate::today_from_system()?;
+            let today = crate::core::time::offset_aware_system_today(config)?;
             let version = engine::format_version(today, 1, config.version_output);
             let state = OmvState {
                 schema_version: 1,
@@ -2748,6 +2747,10 @@ mod tests {
 
         fn today(&self) -> Result<LogicalDate, OmvError> {
             Ok(self.date)
+        }
+
+        fn unix_seconds(&self) -> Result<i64, OmvError> {
+            Ok(self.date.to_unix_days() * 86_400 + 12 * 3600)
         }
     }
 
@@ -2946,6 +2949,11 @@ mod tests {
                 LastTimeSource::Ntp
             }
             fn today(&self) -> Result<LogicalDate, OmvError> {
+                Err(OmvError::Ntp(NtpError::Unavailable(
+                    "forced failure".to_owned(),
+                )))
+            }
+            fn unix_seconds(&self) -> Result<i64, OmvError> {
                 Err(OmvError::Ntp(NtpError::Unavailable(
                     "forced failure".to_owned(),
                 )))

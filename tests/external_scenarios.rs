@@ -46,6 +46,10 @@ impl TimeSource for FixedSource {
     fn today(&self) -> Result<LogicalDate, OmvError> {
         Ok(self.date)
     }
+
+    fn unix_seconds(&self) -> Result<i64, OmvError> {
+        Ok(self.date.to_unix_days() * 86_400 + 12 * 3600)
+    }
 }
 
 #[test]

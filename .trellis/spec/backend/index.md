@@ -88,6 +88,12 @@ Also read:
   and `.omv/ai/adapters/project-instructions.md` describe this convention for
   v0.5+ projects. v0.4 `/finish-work` may auto-trigger the helper as part of
   its own workflow.
+- `config.timezone` (e.g. `"UTC+8"`) is parsed via `parse_timezone_offset_hours()`
+  into an `i32` offset. `LogicalDate::from_unix_seconds_with_offset()` applies
+  the offset at second-level precision so midnight crossings produce the correct
+  local date. Both `validate_current_date()` and `ensure_state_exists()` use
+  offset-aware computation. NTP returns UTC seconds; system time also provides
+  `unix_seconds()` for offset application.
 - i18n is mandatory for CLI and init TUI from the first implementation.
 - machine-readable output uses a shared JSON envelope across supported commands.
 - NTP time is advisory for `omv` logic only and must never mutate the system
