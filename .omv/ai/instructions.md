@@ -8,7 +8,7 @@
 - Inspect host integration provider/capability status with `omv integrate status --json` when that command is available.
 - Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.
 - Change the managed version with `omv bump --json`.
-- At completion boundaries, use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.
+- At completion boundaries (when `/trellis:finish-work` or equivalent wrap-up is invoked), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.
 - `.omv/targets.toml` kind-based targets can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces; update OMV if a configured kind is reported as unsupported.
 - Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.
 - Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.
