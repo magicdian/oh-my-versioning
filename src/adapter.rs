@@ -320,12 +320,16 @@ pub fn refresh_selected(
 
 pub fn trellis_finish_work_finalize_block() -> String {
     [
-        "## OMV Finalize Boundary",
+        "## OMV Finalize Boundary (Required — run BEFORE archive)",
         "",
-        "- [ ] Choose exactly one OMV `change_type`: `bugfix`, `feature`, `refactor`, `docs`, or `chore`.",
+        "This is the primary trigger for OMV version updates. Execute these steps before Step 1 (survey state).",
+        "",
+        "- [ ] Choose exactly one OMV `change_type`: `bugfix`, `feature`, `refactor`, `docs`, or `chore`. Ask the user if ambiguous.",
         "- [ ] Run `omv sync --check --json` and treat any required target drift as blocking.",
         "- [ ] If drift is expected and target files should be updated, run `omv sync --json`, then rerun `omv sync --check --json` before finalizing.",
-        "- [ ] After the required finish-work checks pass, run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <change_type> --json`.",
+        "- [ ] Run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <change_type> --task-id <task-dir-name> --json`.",
+        "- [ ] Run the project build command to update lock files (e.g. `cargo build` for Rust, `npm install` for Node).",
+        "- [ ] Commit OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, `Cargo.lock`, generated version files, etc.) with message like `chore: bump version to <new_version>`.",
         "- [ ] Do not treat `finalize-boundary` as target sync: non-semantic change types record a no-op finalization and do not write target files.",
         "- [ ] If `change_type` is unresolved, leave OMV in pending/manual-action state; do not infer a value or call `finalize-task` directly with guessed fields.",
     ]
@@ -874,8 +878,7 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` to preview target changes.",
                 "- Use `omv sync --check --json` to verify drift without mutation.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability state where available.",
-                "- **Trellis v0.5+:** If the Trellis finalize-boundary capability is installed, call the OMV helper advertised in `.omv/ai/contract.json` during Phase 3.4 commit confirmation, before `/trellis:finish-work`. When the user confirms a commit during Phase 3.4, run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <type> --json`, then commit the resulting bump files. Supply an explicit `change_type`; do not infer it.",
-                "- **Trellis v0.4:** When the finalize-boundary block is present in the finish-work skill, the `/trellis:finish-work` flow may trigger `finalize-boundary` automatically. If it does not, invoke it explicitly after finish-work succeeds.",
+                "- If the Trellis finalize-boundary capability is installed, the `/trellis:finish-work` skill will trigger `omv event finalize-boundary` as its first required step (before archive). The finish-work skill's OMV block contains the full checklist. Supply an explicit `change_type`; do not infer it. If finish-work was not used, invoke finalize-boundary manually before considering the work complete.",
                 "- Use `omv bump --json` for writes.",
                 "- Do not trust manifest versions as authority.",
                 "- Do not treat this guide or other host files as OMV authority.",
@@ -905,7 +908,7 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` before editing version-sensitive surfaces.",
                 "- Use `omv sync --check --json` to verify target drift without writing.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.",
-                "- During commit confirmation (when a unit of work is complete and ready to commit), call the OMV finalize-boundary helper from `.omv/ai/contract.json` only after tests pass and only with an explicit `change_type`. Do not wait until a separate finish-work step — call finalize-boundary as soon as the commit is confirmed.",
+                "- At completion boundaries (when `/trellis:finish-work` or equivalent wrap-up is invoked), the OMV finalize-boundary helper from `.omv/ai/contract.json` will be called with an explicit `change_type`. If the project uses Trellis, this happens automatically via the finish-work skill's OMV block. Otherwise, call it manually after tests pass.",
                 "- Use `omv bump --json` to advance the managed version.",
                 "- Do not edit native manifest versions directly.",
                 "- Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.",

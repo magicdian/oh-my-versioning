@@ -1,0 +1,4 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python3 .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/workflow.md", "reason": "Main file to edit - Phase 3.4 and breadcrumb blocks"}
+{"file": ".omv/ai/adapters/trellis/guide.md", "reason": "OMV trellis guide with timing instruction to fix"}
+{"file": ".omv/ai/adapters/project-instructions.md", "reason": "Reference for correct timing language"}

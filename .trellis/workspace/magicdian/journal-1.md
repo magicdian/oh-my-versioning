@@ -640,3 +640,38 @@ Fixed the bug where config.timezone='UTC+8' was never applied to date computatio
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: fix: move OMV finalize-boundary trigger to finish-work skill
+
+**Date**: 2026-05-26
+**Task**: fix: move OMV finalize-boundary trigger to finish-work skill
+**Branch**: `dev`
+
+### Summary
+
+Diagnosed OMV finalize-boundary not triggering during workflow Phase 3.4. Moved the trigger from workflow.md Phase 3.4 to the finish-work skill's OMV managed block as primary trigger point. Updated all adapter files, guide.md, project-instructions.md, and src/adapter.rs for consistency. All tests pass.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `23391c7` | (see git log) |
+| `356dc21` | (see git log) |
+| `6ee4e0e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
