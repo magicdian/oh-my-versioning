@@ -165,6 +165,26 @@ const TRELLIS_FINISH_WORK_BACKUP_PATHS: [&str; 2] = [
     ".agents/skills/trellis-finish-work/SKILL.md.backup",
     ".agents/skills/finish-work/SKILL.md.backup",
 ];
+const CLAUDE_FINISH_WORK_PATH: &str = ".claude/commands/trellis/finish-work.md";
+const OPENCODE_FINISH_WORK_PATH: &str = ".opencode/commands/trellis/finish-work.md";
+
+/// Agent providers whose own Trellis finish-work entrypoint should carry the
+/// OMV finalize-boundary managed block when the agent is selected.
+const FINALIZE_BOUNDARY_AGENT_PROVIDERS: [IntegrationProvider; 3] = [
+    IntegrationProvider::Claude,
+    IntegrationProvider::OpenCode,
+    IntegrationProvider::Codex,
+];
+
+/// One agent's resolved Trellis finish-work entrypoint for finalize-boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FinalizeBoundaryEntrypoint {
+    /// Selected agent provider that owns this entrypoint.
+    provider: IntegrationProvider,
+    /// Repo-relative path of the agent's finish-work surface, or `None` when
+    /// the agent has no finish-work file on disk to inject into.
+    host_rel: Option<&'static str>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IntegrationProviderDetection {
@@ -978,9 +998,10 @@ fn execute_integrate_apply(
     update_state_from_status(&mut state, &before);
     save_integration_state(omv_root, &state)?;
 
+    let selected_agents = selected_finalize_boundary_agents(&state);
     let mut results = Vec::new();
     for plan in selected_integration_capabilities(&before) {
-        let result = apply_integration_capability(omv_root, project_root, &plan);
+        let result = apply_integration_capability(omv_root, project_root, &plan, &selected_agents);
         update_state_capability(&mut state, &result);
         save_integration_state(omv_root, &state)?;
         results.push(result);
@@ -1029,6 +1050,7 @@ fn apply_integration_capability(
     omv_root: &Path,
     project_root: &Path,
     plan: &IntegrationCapabilityPlan,
+    selected_agents: &[IntegrationProvider],
 ) -> IntegrationApplyCapabilityResult {
     let Some(provider) = IntegrationProvider::parse(&plan.provider) else {
         return failed_integration_result(plan, "unknown-provider", "unknown integration provider");
@@ -1049,6 +1071,12 @@ fn apply_integration_capability(
             "provider-not-detected",
             "trellis integration requires an existing .trellis installation",
         );
+    }
+
+    if provider == IntegrationProvider::Trellis
+        && capability == IntegrationCapability::FinalizeBoundary
+    {
+        return apply_trellis_finalize_boundary(omv_root, project_root, plan, selected_agents);
     }
 
     let Some(target) = integration_target(provider, capability) else {
@@ -1083,6 +1111,82 @@ fn apply_integration_capability(
             let message = err.to_string();
             failed_integration_result(plan, "install-failed", message.as_str())
         }
+    }
+}
+
+/// Apply the OMV finalize-boundary managed block to the finish-work entrypoint
+/// of every selected in-scope agent.
+///
+/// The target set is the union, over the selected agents, of each agent's
+/// resolved finish-work entrypoint. Each existing entrypoint is upserted with
+/// the idempotent shared block; a selected agent without a finish-work surface
+/// aggregates into an actionable failure. The capability succeeds only when
+/// every selected agent's entrypoint was injected.
+fn apply_trellis_finalize_boundary(
+    omv_root: &Path,
+    project_root: &Path,
+    plan: &IntegrationCapabilityPlan,
+    selected_agents: &[IntegrationProvider],
+) -> IntegrationApplyCapabilityResult {
+    let entrypoints = resolve_finalize_boundary_entrypoints(project_root, selected_agents);
+
+    let mut installed_paths: Vec<String> = Vec::new();
+    let mut missing: Vec<String> = Vec::new();
+
+    for entry in &entrypoints {
+        let Some(host_rel) = entry.host_rel else {
+            missing.push(missing_finalize_boundary_surface(entry.provider));
+            continue;
+        };
+
+        let target = IntegrationTarget {
+            source_rel: "contract.json",
+            host_rel,
+            behavior: IntegrationTargetBehavior::TrellisFinalizeBoundary,
+        };
+
+        if let Err(err) = check_integration_target_safety(project_root, &target) {
+            let message = err.to_string();
+            return failed_integration_result(plan, "unsafe-worktree", message.as_str());
+        }
+
+        match install_integration_target(omv_root, project_root, &target, plan) {
+            Ok(mode) => {
+                if let Err(err) = record_adapter_target(omv_root, &target, plan, mode) {
+                    let message = err.to_string();
+                    return failed_integration_result(
+                        plan,
+                        "registry-write-failed",
+                        message.as_str(),
+                    );
+                }
+                installed_paths.push(host_rel.to_owned());
+            }
+            Err(err) => {
+                let message = err.to_string();
+                return failed_integration_result(plan, "install-failed", message.as_str());
+            }
+        }
+    }
+
+    if !missing.is_empty() {
+        let message = format!(
+            "no Trellis finish-work surface found for selected agent(s); expected {}. Run Trellis update/init for those agents, then rerun `omv integrate apply`.",
+            missing.join(", ")
+        );
+        return failed_integration_result(plan, "finish-work-surface-missing", message.as_str());
+    }
+
+    IntegrationApplyCapabilityResult {
+        provider: plan.provider.clone(),
+        capability: plan.capability.clone(),
+        status: String::from("installed"),
+        target_paths: if installed_paths.is_empty() {
+            plan.target_paths.clone()
+        } else {
+            installed_paths
+        },
+        failure: None,
     }
 }
 
@@ -1194,6 +1298,7 @@ fn build_integration_status(
                         ));
                     let probe = probe_integration_capability(
                         project_root,
+                        state,
                         descriptor.provider,
                         capability_descriptor.capability,
                     );
@@ -1480,8 +1585,73 @@ fn resolve_trellis_finish_work_path(project_root: &Path) -> Option<&'static str>
     None
 }
 
+/// In-scope agent providers (claude/opencode/codex) whose provider-level
+/// `selected` flag is true in the persisted integration state.
+///
+/// finalize-boundary is a Trellis capability, but its effective target set is
+/// the union of the finish-work entrypoints of these selected agents. This is
+/// the one explicit cross-provider read; it is confined to the
+/// finalize-boundary branches.
+fn selected_finalize_boundary_agents(state: &OmvIntegrations) -> Vec<IntegrationProvider> {
+    FINALIZE_BOUNDARY_AGENT_PROVIDERS
+        .iter()
+        .copied()
+        .filter(|provider| {
+            state
+                .providers
+                .iter()
+                .any(|candidate| candidate.provider == *provider && candidate.selected)
+        })
+        .collect()
+}
+
+/// Resolve each selected in-scope agent to its Trellis finish-work entrypoint.
+///
+/// - claude   -> fixed `.claude/commands/trellis/finish-work.md`
+/// - opencode -> fixed `.opencode/commands/trellis/finish-work.md`
+/// - codex    -> existing v0.5/v0.4 `.agents/skills/...` resolution
+///
+/// An agent contributes `host_rel = None` when no finish-work surface exists on
+/// disk so the caller can surface an actionable pending/failure instead of
+/// silently skipping it.
+fn resolve_finalize_boundary_entrypoints(
+    project_root: &Path,
+    selected_agents: &[IntegrationProvider],
+) -> Vec<FinalizeBoundaryEntrypoint> {
+    // Backward compatibility: a project that selected Trellis finalize-boundary
+    // but no in-scope agent still targets the legacy codex `.agents/skills/...`
+    // surface, exactly as before agent-gating existed.
+    let effective: Vec<IntegrationProvider> = if selected_agents.is_empty() {
+        vec![IntegrationProvider::Codex]
+    } else {
+        selected_agents.to_vec()
+    };
+
+    effective
+        .iter()
+        .copied()
+        .map(|provider| {
+            let host_rel = match provider {
+                IntegrationProvider::Claude => project_root
+                    .join(CLAUDE_FINISH_WORK_PATH)
+                    .exists()
+                    .then_some(CLAUDE_FINISH_WORK_PATH),
+                IntegrationProvider::OpenCode => project_root
+                    .join(OPENCODE_FINISH_WORK_PATH)
+                    .exists()
+                    .then_some(OPENCODE_FINISH_WORK_PATH),
+                IntegrationProvider::Codex => resolve_trellis_finish_work_path(project_root),
+                // Unreachable: only in-scope agents are passed in.
+                IntegrationProvider::Trellis => None,
+            };
+            FinalizeBoundaryEntrypoint { provider, host_rel }
+        })
+        .collect()
+}
+
 fn probe_integration_capability(
     project_root: &Path,
+    state: &OmvIntegrations,
     provider: IntegrationProvider,
     capability: IntegrationCapability,
 ) -> IntegrationCapabilityProbe {
@@ -1492,7 +1662,8 @@ fn probe_integration_capability(
         };
     };
     if target.behavior == IntegrationTargetBehavior::TrellisFinalizeBoundary {
-        return probe_trellis_finalize_boundary(project_root);
+        let selected_agents = selected_finalize_boundary_agents(state);
+        return probe_trellis_finalize_boundary(project_root, &selected_agents);
     }
 
     let host_path = project_root.join(target.host_rel);
@@ -1508,7 +1679,72 @@ fn probe_integration_capability(
     }
 }
 
-fn probe_trellis_finalize_boundary(project_root: &Path) -> IntegrationCapabilityProbe {
+/// Aggregate finalize-boundary status across every selected in-scope agent's
+/// finish-work entrypoint.
+///
+/// finalize-boundary is `installed` only when every required entrypoint
+/// (selected agent + file exists) carries the OMV managed block. Any missing
+/// surface or missing block downgrades the capability to a pending/mismatch
+/// state that names the offending agent path(s). The codex branch preserves the
+/// historical v0.4-only / backup-only mismatch diagnostics.
+fn probe_trellis_finalize_boundary(
+    project_root: &Path,
+    selected_agents: &[IntegrationProvider],
+) -> IntegrationCapabilityProbe {
+    // Backward compatibility: when no in-scope agent is selected (or only codex
+    // is, and it has no live surface), use the legacy codex `.agents/skills/...`
+    // diagnostics (v0.4-only block, backup-only block detection).
+    let codex_only = selected_agents.is_empty() || selected_agents == [IntegrationProvider::Codex];
+    if codex_only {
+        return probe_trellis_finalize_codex_legacy(project_root);
+    }
+
+    let entrypoints = resolve_finalize_boundary_entrypoints(project_root, selected_agents);
+    let mut offending: Vec<String> = Vec::new();
+    let mut any_required = false;
+
+    for entry in &entrypoints {
+        match entry.host_rel {
+            Some(host_rel) => {
+                any_required = true;
+                if !file_contains_trellis_finalize_block(&project_root.join(host_rel)) {
+                    offending.push(host_rel.to_owned());
+                }
+            }
+            None => {
+                // Selected agent has no finish-work surface to inject into.
+                offending.push(missing_finalize_boundary_surface(entry.provider));
+            }
+        }
+    }
+
+    if offending.is_empty() && any_required {
+        return IntegrationCapabilityProbe {
+            installed: true,
+            failure: None,
+        };
+    }
+
+    trellis_finalize_boundary_mismatch(
+        &offending.join(", "),
+        "the OMV finalize-boundary block is missing from one or more selected agent finish-work entrypoints",
+    )
+}
+
+/// Repo-relative expected finish-work path for a selected agent that currently
+/// has no finish-work surface on disk.
+fn missing_finalize_boundary_surface(provider: IntegrationProvider) -> String {
+    match provider {
+        IntegrationProvider::Claude => CLAUDE_FINISH_WORK_PATH.to_owned(),
+        IntegrationProvider::OpenCode => OPENCODE_FINISH_WORK_PATH.to_owned(),
+        IntegrationProvider::Codex => TRELLIS_FINISH_WORK_PATHS.join(" or "),
+        IntegrationProvider::Trellis => String::new(),
+    }
+}
+
+/// Legacy codex-only finalize-boundary diagnostics retained for backward
+/// compatibility (v0.4-only block and backup-only block detection).
+fn probe_trellis_finalize_codex_legacy(project_root: &Path) -> IntegrationCapabilityProbe {
     let v05_path = project_root.join(TRELLIS_FINISH_WORK_V05_PATH);
     let v04_path = project_root.join(TRELLIS_FINISH_WORK_V04_PATH);
     let v05_exists = v05_path.exists();

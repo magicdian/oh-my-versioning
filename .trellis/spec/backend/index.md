@@ -91,6 +91,22 @@ Also read:
   and `.omv/ai/adapters/project-instructions.md` describe this convention for
   v0.5+ projects. v0.4 `/finish-work` may auto-trigger the helper as part of
   its own workflow.
+- The `finalize-boundary` capability is owned by the Trellis provider, but its
+  managed-block target set is the union, over the *selected* in-scope agent
+  providers, of each agent's own Trellis finish-work entrypoint:
+  claude → `.claude/commands/trellis/finish-work.md`,
+  opencode → `.opencode/commands/trellis/finish-work.md`,
+  codex → the existing v0.5 `.agents/skills/trellis-finish-work/SKILL.md`
+  (or v0.4 `.agents/skills/finish-work/SKILL.md`) resolution. This is the one
+  intentional cross-provider read (Trellis capability ← agent selection) and is
+  confined to the finalize-boundary apply/probe branches. Selection is read from
+  `.omv/integrations.toml` provider-level `selected` flags. When no in-scope
+  agent is selected, the legacy codex `.agents/skills/...` single-path behavior
+  (including v0.4-only and backup-only mismatch diagnostics) is preserved for
+  backward compatibility. The capability reports `installed` only when every
+  selected agent's finish-work entrypoint that exists on disk carries the block;
+  a missing surface or missing block downgrades it to a pending/mismatch state
+  naming the offending path(s).
 - `config.timezone` (e.g. `"UTC+8"`) is parsed via `parse_timezone_offset_hours()`
   into an `i32` offset. `LogicalDate::from_unix_seconds_with_offset()` applies
   the offset at second-level precision so midnight crossings produce the correct

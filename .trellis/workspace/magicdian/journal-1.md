@@ -708,3 +708,36 @@ Promoted Claude from MVP-hidden to a first-class agent provider on both the omv 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Extend finalize-boundary to selected agents' finish-work entrypoints
+
+**Date**: 2026-06-04
+**Task**: Extend finalize-boundary to selected agents' finish-work entrypoints
+**Branch**: `dev`
+
+### Summary
+
+Diagnosed why Claude (and fragilely OpenCode) never triggered OMV version bumps on /trellis:finish-work: confirmed via Trellis docs+source that Trellis distributes per-agent copies and finalize-boundary only injected into the .agents/skills/ (codex/gemini) surface. Fixed by making finalize-boundary inject the OMV managed block into the finish-work entrypoint of each SELECTED agent (claude->.claude/commands, opencode->.opencode/commands, codex->.agents/skills v05/v04), gated on agent provider selection in integrations.toml. Multi-target handling stays inside the TrellisFinalizeBoundary special case; codex-only selection is backward compatible. Selection read via typed IntegrationProvider enum to avoid the open-code/opencode serde kebab pitfall (recorded in memory). 4 new integration tests; backend spec + contract doc updated. fmt/clippy/test all green. Also note: this omv repo's own self-managed version bump deferred by user.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `37478e5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

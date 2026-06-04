@@ -123,8 +123,12 @@
     "host_files_are_authoritative": false,
     "providers": {
       "claude": {
-        "hidden_from_init": true,
-        "mvp_supported": false,
+        "bootstrap_policy": "may create lightweight instruction host files",
+        "capabilities": [
+          "project-instructions",
+          "host-skill"
+        ],
+        "mvp_supported": true,
         "provider_type": "agent"
       },
       "codex": {
