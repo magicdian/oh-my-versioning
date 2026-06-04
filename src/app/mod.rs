@@ -19,8 +19,8 @@ use crate::core::finalization::{
 use crate::core::integration::{
     IntegrationCapability, IntegrationCapabilityDescriptor, IntegrationCapabilityStatus,
     IntegrationDetectionSnapshot, IntegrationFailure, IntegrationProvider,
-    IntegrationProviderDescriptor, OmvIntegrationCapabilityState, OmvIntegrationProviderState,
-    OmvIntegrations, mvp_provider_descriptors,
+    IntegrationProviderDescriptor, IntegrationProviderKind, OmvIntegrationCapabilityState,
+    OmvIntegrationProviderState, OmvIntegrations, mvp_provider_descriptors,
 };
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::{
@@ -1325,6 +1325,19 @@ fn detect_integration_provider(
     provider: IntegrationProvider,
 ) -> IntegrationProviderDetection {
     match provider {
+        IntegrationProvider::Claude => {
+            let mut evidence = Vec::new();
+            if project_root.join("CLAUDE.md").exists() {
+                evidence.push(String::from("CLAUDE.md"));
+            }
+            if project_root.join(".claude").exists() {
+                evidence.push(String::from(".claude"));
+            }
+            IntegrationProviderDetection {
+                detected: !evidence.is_empty(),
+                evidence,
+            }
+        }
         IntegrationProvider::Codex => {
             let mut evidence = Vec::new();
             if project_root.join("AGENTS.md").exists() {
@@ -1372,6 +1385,20 @@ fn integration_target(
     capability: IntegrationCapability,
 ) -> Option<IntegrationTarget> {
     match (provider, capability) {
+        (IntegrationProvider::Claude, IntegrationCapability::ProjectInstructions) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/claude/CLAUDE.md",
+                host_rel: "CLAUDE.md",
+                behavior: IntegrationTargetBehavior::FullFileOrManagedBlock,
+            })
+        }
+        (IntegrationProvider::Claude, IntegrationCapability::HostSkill) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/claude/SKILL.md",
+                host_rel: ".claude/skills/omv-versioning/SKILL.md",
+                behavior: IntegrationTargetBehavior::DedicatedFile,
+            })
+        }
         (IntegrationProvider::Codex, IntegrationCapability::ProjectInstructions) => {
             Some(IntegrationTarget {
                 source_rel: "adapters/project-instructions.md",
@@ -1739,6 +1766,14 @@ fn is_omv_managed_integration_file(content: &str) -> bool {
     content.trim_start().starts_with("<!-- OMV-MANAGED-FILE")
 }
 
+fn integration_provider_kind(provider: &str) -> Option<IntegrationProviderKind> {
+    let provider = IntegrationProvider::parse(provider)?;
+    mvp_provider_descriptors()
+        .into_iter()
+        .find(|descriptor| descriptor.provider == provider)
+        .map(|descriptor| descriptor.kind)
+}
+
 fn record_adapter_target(
     omv_root: &Path,
     target: &IntegrationTarget,
@@ -1746,10 +1781,9 @@ fn record_adapter_target(
     mode: crate::core::adapter::AdapterTargetMode,
 ) -> Result<(), OmvError> {
     let mut registry = storage::adapters::load_adapters_if_exists(omv_root)?;
-    let kind = if plan.provider == "codex" || plan.provider == "opencode" {
-        crate::core::adapter::AdapterKind::Agent
-    } else {
-        crate::core::adapter::AdapterKind::Spec
+    let kind = match integration_provider_kind(&plan.provider) {
+        Some(IntegrationProviderKind::AgentHost) => crate::core::adapter::AdapterKind::Agent,
+        _ => crate::core::adapter::AdapterKind::Spec,
     };
     let adapter_target = OmvAdapterTarget {
         path: target.host_rel.to_owned(),
@@ -2546,7 +2580,9 @@ fn persist_and_apply_init_integrations(
 
     let target_paths = selected_capabilities
         .iter()
-        .flat_map(|(_, capability)| integration_capability_target_files(*capability))
+        .flat_map(|(provider, capability)| {
+            integration_capability_target_files(*provider, *capability)
+        })
         .collect::<Vec<_>>();
     let dirty_targets = dirty_integration_targets(project_root, &target_paths);
     if !dirty_targets.is_empty() {

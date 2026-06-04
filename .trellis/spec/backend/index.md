@@ -68,8 +68,11 @@ Also read:
   commands remain temporary MVP compatibility commands where behavior overlaps.
 - `.omv/targets.toml` uses a flat target list in V1.
 - MVP integration providers are internal registry entries, not a public plugin
-  runtime. Codex, OpenCode, and Trellis are the supported MVP providers; Claude
-  and OpenSpec remain outside the init UI support matrix.
+  runtime. Claude, Codex, OpenCode, and Trellis are the supported MVP providers;
+  OpenSpec remains outside the init UI support matrix. Claude (Claude Code) is an
+  agent-host provider with `project-instructions` (→ `CLAUDE.md`) and `host-skill`
+  (→ `.claude/skills/omv-versioning/SKILL.md`) capabilities, detected via `.claude`
+  or `CLAUDE.md`.
 - `ProjectInstructions` managed blocks in shared host files (e.g. `AGENTS.md`)
   use a provider-agnostic block identifier (`integration-project-instructions`)
   so multiple agent hosts sharing the same host file do not produce duplicate

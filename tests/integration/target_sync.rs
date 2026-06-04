@@ -564,6 +564,7 @@ fn integrate_apply_bootstraps_codex_and_reports_json_envelope() {
 
         assert!(output.message.contains("\"command\": \"integrate.apply\""));
         assert!(output.message.contains("\"ok\": true"));
+        eprintln!("DBG_OUTPUT={}", output.message);
         assert!(output.message.contains("\"succeeded\": 2"));
     });
 
@@ -582,6 +583,91 @@ fn integrate_apply_bootstraps_codex_and_reports_json_envelope() {
         "status = \"installed\"",
     );
     assert_file_contains(&omv_root.join("adapters.toml"), "name = \"codex\"");
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_installs_claude_project_instructions_and_host_skill() {
+    let project_root = temp_project_root("integrate-apply-claude");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Claude,
+                    true,
+                    false,
+                    &[
+                        (
+                            IntegrationCapability::ProjectInstructions,
+                            true,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::HostSkill,
+                            true,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                    ],
+                ),
+                // Codex is default-selected during normalization; pin it as an
+                // explicit unselected provider so this test only applies Claude.
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[
+                        (
+                            IntegrationCapability::ProjectInstructions,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                        (
+                            IntegrationCapability::HostSkill,
+                            false,
+                            IntegrationCapabilityStatus::Selected,
+                        ),
+                    ],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("claude integrate apply should succeed");
+
+        assert!(output.message.contains("\"command\": \"integrate.apply\""));
+        assert!(output.message.contains("\"ok\": true"));
+        assert!(output.message.contains("\"succeeded\": 2"));
+    });
+
+    assert_file_contains(&project_root.join("CLAUDE.md"), "OMV Claude Adapter");
+    let claude_skill =
+        fs::read_to_string(project_root.join(".claude/skills/omv-versioning/SKILL.md"))
+            .expect("claude skill host file should exist");
+    assert!(claude_skill.starts_with("---\n"));
+    assert!(claude_skill.contains("<!-- OMV-MANAGED-FILE"));
+    assert!(claude_skill.contains("omv-versioning"));
+    assert_file_contains(
+        &omv_root.join("integrations.toml"),
+        "status = \"installed\"",
+    );
+    assert_file_contains(&omv_root.join("adapters.toml"), "name = \"claude\"");
+    // Claude must be recorded as an agent adapter, not a spec adapter.
+    assert_file_contains(&omv_root.join("adapters.toml"), "kind = \"agent\"");
 
     cleanup_project_root(&project_root);
 }
