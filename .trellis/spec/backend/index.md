@@ -67,6 +67,15 @@ Also read:
   capability workflows. Existing `omv adapter install/refresh/list/status`
   commands remain temporary MVP compatibility commands where behavior overlaps.
 - `.omv/targets.toml` uses a flat target list in V1.
+- Re-running `omv init` must be non-destructive to `.omv/targets.toml`.
+  `persist_init_state` loads any existing targets and merges draft-detected
+  targets with **existing-wins** semantics (`merge_targets_from_draft`): v1
+  records keyed by `id` are kept verbatim (preserving hand-edited
+  `runtime_export_path` etc.), draft records are appended only when their `id`
+  is absent, and `v2_targets` / `unsupported_targets` (kind-based config) are
+  preserved untouched. First init (targets.toml absent → default) still writes
+  the full draft-derived set. This mirrors the load-then-merge / ensure-exists
+  treatment already used for config and state.
 - MVP integration providers are internal registry entries, not a public plugin
   runtime. Claude, Codex, OpenCode, and Trellis are the supported MVP providers;
   OpenSpec remains outside the init UI support matrix. Claude (Claude Code) is an

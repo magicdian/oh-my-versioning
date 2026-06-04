@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验测试覆盖「重复 init 保留+追加 targets」并满足质量门槛"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "校验合并逻辑的错误处理符合 OmvError 约定"}
