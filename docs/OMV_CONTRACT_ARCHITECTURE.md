@@ -309,15 +309,36 @@ The first MVP boundary is Trellis finish-work:
 - idempotency is based on task identity, boundary identity, and a normalized
   workspace snapshot hash
 
-The helper updates only the active platform-resolved completion surface through
-an OMV-managed block. It must not take over every sibling command or make host
-files authoritative.
+The helper updates the active platform-resolved completion surface of each
+*selected* in-scope agent through an OMV-managed block. It must not take over
+every sibling command or make host files authoritative.
 
-Trellis finish-work path compatibility is capability-based, not version-string
-based. OMV prefers `.agents/skills/trellis-finish-work/SKILL.md` for Trellis
-0.5+ and preserves `.agents/skills/finish-work/SKILL.md` for Trellis 0.4. If a
-project has both files but the OMV managed block exists only in the legacy path,
-or when the block exists only in a Trellis-created `.backup` file,
+Trellis distributes per-agent copies of finish-work; each agent reads only its
+own entrypoint. The `finalize-boundary` capability is owned by the Trellis
+provider, but its target set is derived from the selected agent providers in
+`.omv/integrations.toml`:
+
+- claude   → `.claude/commands/trellis/finish-work.md`
+- opencode → `.opencode/commands/trellis/finish-work.md`
+- codex    → `.agents/skills/trellis-finish-work/SKILL.md` (v0.5) or
+  `.agents/skills/finish-work/SKILL.md` (v0.4)
+
+At `omv integrate apply` the block is upserted (idempotently) into every
+selected agent's finish-work entrypoint that exists on disk. Unselected agents
+are never touched. A selected agent with no finish-work surface produces an
+actionable `finish-work-surface-missing` failure rather than being silently
+skipped. `omv integrate status` reports `finalize-boundary` `installed` only
+when every required (selected-agent + file-exists) entrypoint carries the block;
+otherwise it reports a repairable pending/mismatch naming the offending path(s).
+This is the one intentional cross-provider read (Trellis capability ← agent
+selection). When no in-scope agent is selected, OMV preserves the legacy
+codex-only `.agents/skills/...` behavior for backward compatibility.
+
+Trellis finish-work path compatibility for the codex surface is capability-based,
+not version-string based. OMV prefers `.agents/skills/trellis-finish-work/SKILL.md`
+for Trellis 0.5+ and preserves `.agents/skills/finish-work/SKILL.md` for Trellis
+0.4. If a project has both files but the OMV managed block exists only in the
+legacy path, or when the block exists only in a Trellis-created `.backup` file,
 `omv integrate status` reports a repairable mismatch because Trellis may now run
 an active skill file without OMV guidance. Status must not migrate host files;
 the recovery action is an explicit `omv integrate apply`.

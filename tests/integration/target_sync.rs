@@ -1174,6 +1174,415 @@ fn integrate_status_warns_when_trellis_finalize_block_is_only_in_backup() {
 }
 
 #[test]
+fn integrate_apply_injects_finalize_boundary_into_claude_only_when_only_claude_selected() {
+    let project_root = temp_project_root("finalize-boundary-claude-only");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".claude/commands/trellis"))
+        .expect("claude commands dir should be created");
+    fs::create_dir_all(project_root.join(".opencode/commands/trellis"))
+        .expect("opencode commands dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("codex skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".claude/commands/trellis/finish-work.md"),
+        "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("claude finish-work should write");
+    fs::write(
+        project_root.join(".opencode/commands/trellis/finish-work.md"),
+        "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("opencode finish-work should write");
+    fs::write(
+        project_root.join(".agents/skills/trellis-finish-work/SKILL.md"),
+        "# Trellis Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+    )
+    .expect("codex finish-work should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Claude,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::OpenCode,
+                    false,
+                    false,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::FinalizeBoundary,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("claude-only finalize-boundary apply should succeed");
+
+        assert!(output.message.contains("\"status\": \"installed\""));
+    });
+
+    assert_file_contains(
+        &project_root.join(".claude/commands/trellis/finish-work.md"),
+        "OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work",
+    );
+    let opencode =
+        fs::read_to_string(project_root.join(".opencode/commands/trellis/finish-work.md"))
+            .expect("opencode finish-work should exist");
+    assert!(!opencode.contains("OMV-MANAGED-BEGIN"));
+    let codex =
+        fs::read_to_string(project_root.join(".agents/skills/trellis-finish-work/SKILL.md"))
+            .expect("codex finish-work should exist");
+    assert!(!codex.contains("OMV-MANAGED-BEGIN"));
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_injects_finalize_boundary_into_all_selected_agents_idempotently() {
+    let project_root = temp_project_root("finalize-boundary-multi");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".claude/commands/trellis"))
+        .expect("claude commands dir should be created");
+    fs::create_dir_all(project_root.join(".opencode/commands/trellis"))
+        .expect("opencode commands dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/trellis-finish-work"))
+        .expect("codex skill dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    for path in [
+        ".claude/commands/trellis/finish-work.md",
+        ".opencode/commands/trellis/finish-work.md",
+        ".agents/skills/trellis-finish-work/SKILL.md",
+    ] {
+        fs::write(
+            project_root.join(path),
+            "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n",
+        )
+        .expect("finish-work surface should write");
+    }
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Claude,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::OpenCode,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::FinalizeBoundary,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    let apply = || {
+        with_cwd(&project_root, || {
+            app::run(Cli {
+                command: Command::Integrate(IntegrateCommand {
+                    action: IntegrateAction::Apply,
+                }),
+                locale_override: Some("en-US".to_owned()),
+                ntp_override: None,
+                output_mode: OutputMode::Json,
+            })
+            .expect("multi-agent finalize-boundary apply should succeed");
+        });
+    };
+
+    apply();
+    apply();
+
+    for path in [
+        ".claude/commands/trellis/finish-work.md",
+        ".opencode/commands/trellis/finish-work.md",
+        ".agents/skills/trellis-finish-work/SKILL.md",
+    ] {
+        let content =
+            fs::read_to_string(project_root.join(path)).expect("finish-work surface should exist");
+        assert_eq!(
+            content
+                .matches("OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work")
+                .count(),
+            1,
+            "block should be injected exactly once in {path}"
+        );
+    }
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_status_reports_pending_when_one_selected_entrypoint_lacks_block() {
+    let project_root = temp_project_root("finalize-boundary-status-partial");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::create_dir_all(project_root.join(".claude/commands/trellis"))
+        .expect("claude commands dir should be created");
+    fs::create_dir_all(project_root.join(".opencode/commands/trellis"))
+        .expect("opencode commands dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    fs::write(
+        project_root.join(".claude/commands/trellis/finish-work.md"),
+        "# Finish Work\n\n<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->\n## OMV Finalize Boundary\n\n- [ ] guidance\n<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->\n",
+    )
+    .expect("claude finish-work should write");
+    fs::write(
+        project_root.join(".opencode/commands/trellis/finish-work.md"),
+        "# Finish Work\n\n## Checklist\n",
+    )
+    .expect("opencode finish-work should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Claude,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::OpenCode,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::FinalizeBoundary,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Status,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("status should report partial finalize-boundary state");
+
+        assert!(output.message.contains("\"status\": \"pending\""));
+        assert!(output.message.contains("trellis-finish-work-path-mismatch"));
+        assert!(
+            output
+                .message
+                .contains(".opencode/commands/trellis/finish-work.md")
+        );
+    });
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_fails_when_selected_agent_has_no_finish_work_surface() {
+    let project_root = temp_project_root("finalize-boundary-missing-surface");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis/spec/guides"))
+        .expect("trellis guides dir should be created");
+    fs::write(
+        project_root.join(".trellis/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("trellis index should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![
+                integration_provider(
+                    IntegrationProvider::Claude,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Codex,
+                    false,
+                    false,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::OpenCode,
+                    false,
+                    false,
+                    &[(
+                        IntegrationCapability::ProjectInstructions,
+                        false,
+                        IntegrationCapabilityStatus::Selected,
+                    )],
+                ),
+                integration_provider(
+                    IntegrationProvider::Trellis,
+                    true,
+                    true,
+                    &[(
+                        IntegrationCapability::FinalizeBoundary,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    )],
+                ),
+            ],
+        },
+    )
+    .expect("integrations state should write through storage");
+
+    with_cwd(&project_root, || {
+        let err = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("apply should fail when claude finish-work surface is absent");
+
+        assert_eq!(err.code(), "integration_apply_failed");
+        let structured = app::render_structured_error("integrate.apply", &err);
+        assert!(structured.contains("finish-work-surface-missing"));
+        assert!(structured.contains(".claude/commands/trellis/finish-work.md"));
+    });
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
 fn integrate_apply_refreshes_installed_capabilities() {
     let project_root = temp_project_root("integrate-apply-refresh-installed");
     let omv_root = project_root.join(".omv");
