@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Testing bar, forbidden patterns, and review checklist — gates the new integrate-path + adapter-path Claude tests and the cargo clippy/test/fmt acceptance criteria."}
+{"file": ".trellis/spec/backend/index.md", "reason": "Verify the design-decision note about MVP providers was updated to include Claude, and that integrate-vs-adapter consistency + managed-block identifier conventions are honored."}
+{"file": ".trellis/spec/backend/localization-guidelines.md", "reason": "Confirm the integration.provider.claude i18n key was added to all locale catalogs per the mandatory-i18n contract."}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Confirm unknown-agent / integrate failure paths still conform to the structured JSON failure contract."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Cross-layer review: ensure all exhaustive IntegrationProvider matches (enum, descriptors, integration_target, discovery, detect, UI label, draft) gained consistent Claude arms with no drift."}
