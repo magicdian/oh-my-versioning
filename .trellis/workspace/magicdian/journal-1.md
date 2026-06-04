@@ -675,3 +675,36 @@ Diagnosed OMV finalize-boundary not triggering during workflow Phase 3.4. Moved 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: Add Claude Code agent support
+
+**Date**: 2026-06-04
+**Task**: Add Claude Code agent support
+**Branch**: `dev`
+
+### Summary
+
+Promoted Claude from MVP-hidden to a first-class agent provider on both the omv integrate path (IntegrationProvider::Claude + descriptor + integration_target + detection + discovery + UI label) and the legacy omv adapter path (host-skill target + adapters/claude/SKILL.md canonical source). Flipped contract.json claude to mvp_supported. Fixed two latent bugs exposed by adding a second default-unselected agent provider: integration_capability_target_files ignored the provider arg, and record_adapter_target hardcoded codex/opencode->Agent (would misfile Claude as Spec) — now derives AdapterKind from the provider descriptor kind. Updated i18n catalogs, README, backend spec index. All 159 lib + 17 integration tests pass; clippy/fmt clean.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `29d436d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
-- **Last Active**: 2026-05-26
+- **Total Sessions**: 19
+- **Last Active**: 2026-06-04
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~677 | Active |
+| `journal-1.md` | ~710 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-06-04 | Add Claude Code agent support | `29d436d` | `dev` |
 | 18 | 2026-05-26 | fix: move OMV finalize-boundary trigger to finish-work skill | `23391c7`, `356dc21`, `6ee4e0e` | `dev` |
 | 17 | 2026-05-24 | fix: apply timezone offset to logical date computation | `bdfbfd0`, `15abe04` | `dev` |
 | 16 | 2026-05-24 | feat: Trellis version detection and Phase 3.4 finalize-boundary convention | `827c65a`, `d4a3d92` | `dev` |
