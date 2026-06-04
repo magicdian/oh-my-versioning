@@ -238,10 +238,15 @@ fn build_integration_drafts(
         .collect()
 }
 
-pub fn integration_capability_target_files(capability: IntegrationCapability) -> Vec<String> {
+pub fn integration_capability_target_files(
+    provider: IntegrationProvider,
+    capability: IntegrationCapability,
+) -> Vec<String> {
     mvp_provider_descriptors()
         .into_iter()
-        .flat_map(|provider| provider.capabilities)
+        .find(|descriptor| descriptor.provider == provider)
+        .into_iter()
+        .flat_map(|descriptor| descriptor.capabilities)
         .find(|descriptor| descriptor.capability == capability)
         .map(|descriptor| descriptor.target_paths)
         .unwrap_or_default()

@@ -330,7 +330,7 @@ fn review_rows(app: &UiApp, catalog: &Catalog) -> Vec<String> {
                         "capability",
                         capability_label(capability, catalog).as_str(),
                         "targets",
-                        integration_capability_target_files(capability)
+                        integration_capability_target_files(provider, capability)
                             .join(", ")
                             .as_str(),
                     ],
@@ -367,6 +367,7 @@ fn strategy_label(strategy: PreProjectStrategy, catalog: &Catalog) -> String {
 
 fn provider_label(provider: IntegrationProvider, catalog: &Catalog) -> String {
     let key = match provider {
+        IntegrationProvider::Claude => "integration.provider.claude",
         IntegrationProvider::Codex => "integration.provider.codex",
         IntegrationProvider::Trellis => "integration.provider.trellis",
         IntegrationProvider::OpenCode => "integration.provider.opencode",

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum IntegrationProvider {
+    Claude,
     Codex,
     Trellis,
     OpenCode,
@@ -13,6 +14,7 @@ pub enum IntegrationProvider {
 impl IntegrationProvider {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Trellis => "trellis",
             Self::OpenCode => "opencode",
@@ -21,6 +23,7 @@ impl IntegrationProvider {
 
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
+            "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "trellis" => Some(Self::Trellis),
             "opencode" => Some(Self::OpenCode),
@@ -176,6 +179,25 @@ pub struct IntegrationProviderDescriptor {
 
 pub fn mvp_provider_descriptors() -> Vec<IntegrationProviderDescriptor> {
     vec![
+        IntegrationProviderDescriptor {
+            provider: IntegrationProvider::Claude,
+            kind: IntegrationProviderKind::AgentHost,
+            bootstrap_policy: IntegrationBootstrapPolicy::BootstrapLightweightHost,
+            capabilities: vec![
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::ProjectInstructions,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from("CLAUDE.md")],
+                },
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::HostSkill,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from(".claude/skills/omv-versioning/SKILL.md")],
+                },
+            ],
+        },
         IntegrationProviderDescriptor {
             provider: IntegrationProvider::Codex,
             kind: IntegrationProviderKind::AgentHost,

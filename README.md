@@ -126,7 +126,7 @@ Adapter categories:
 
 First-wave supported adapters:
 
-- agent: `codex`, `claude`
+- agent: `codex`, `opencode`, `claude`
 - spec: `openspec`, `trellis`
 
 Example:

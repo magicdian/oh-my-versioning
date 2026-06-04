@@ -180,8 +180,9 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                 },
                 "claude": {
                     "provider_type": "agent",
-                    "mvp_supported": false,
-                    "hidden_from_init": true
+                    "mvp_supported": true,
+                    "bootstrap_policy": "may create lightweight instruction host files",
+                    "capabilities": ["project-instructions", "host-skill"]
                 },
                 "openspec": {
                     "provider_type": "spec",
@@ -386,11 +387,18 @@ fn install_agent_adapter(
     preference: BackendPreference,
 ) -> Result<OmvAdapterInstallation, OmvError> {
     let targets = match adapter {
-        AgentAdapter::Claude => vec![CanonicalTarget {
-            source_rel: "adapters/claude/CLAUDE.md",
-            host_rel: "CLAUDE.md",
-            behavior: SourceInstallBehavior::FullFileOrManagedBlock,
-        }],
+        AgentAdapter::Claude => vec![
+            CanonicalTarget {
+                source_rel: "adapters/claude/CLAUDE.md",
+                host_rel: "CLAUDE.md",
+                behavior: SourceInstallBehavior::FullFileOrManagedBlock,
+            },
+            CanonicalTarget {
+                source_rel: "adapters/claude/SKILL.md",
+                host_rel: ".claude/skills/omv-versioning/SKILL.md",
+                behavior: SourceInstallBehavior::DedicatedFile,
+            },
+        ],
         AgentAdapter::Codex => vec![
             CanonicalTarget {
                 source_rel: "adapters/project-instructions.md",
@@ -788,6 +796,26 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
             .join("\n"),
         ),
         (
+            "adapters/claude/SKILL.md",
+            [
+                "---",
+                "name: omv-versioning",
+                "description: \"Use OMV as the version source of truth for this project.\"",
+                "---",
+                "",
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/claude/SKILL.md contract=1 -->",
+                "",
+                "1. Read `./.omv/ai/instructions.md`.",
+                "2. Use `omv current --json` to inspect current version truth.",
+                "3. Use `omv plan --json` or `omv sync --check --json` before changing version-sensitive files.",
+                "4. Use `omv integrate status --json` to inspect host integration state and `omv integrate apply --json` to apply selected capabilities where available.",
+                "5. At completion boundaries, call the OMV finalize-boundary helper from `./.omv/ai/contract.json` only with an explicit `change_type`; ask the user when the value is missing.",
+                "6. Use `omv bump --json` to mutate version truth.",
+                "7. Do not hand-edit manifest versions or treat host adapter files as authority.",
+            ]
+            .join("\n"),
+        ),
+        (
             "adapters/codex/AGENTS.md",
             [
                 "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/AGENTS.md contract=1 -->",
@@ -1044,6 +1072,30 @@ mod tests {
         let content = fs::read_to_string(root.join("CLAUDE.md")).expect("claude file should exist");
         assert!(content.contains("OMV-MANAGED-BEGIN"));
         assert!(content.contains("# Existing"));
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn install_claude_creates_project_instructions_and_host_skill() {
+        let root = temp_project_root("install-claude-skill");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+
+        let selection = AdapterSelection {
+            agents: vec![crate::core::adapter::AgentAdapter::Claude],
+            specs: Vec::new(),
+        };
+        let summary = install_selected(&omv_root, &root, &selection).expect("install should work");
+        assert_eq!(summary.installed.len(), 1);
+        assert_eq!(summary.installed[0].targets.len(), 2);
+
+        assert!(root.join("CLAUDE.md").exists());
+        assert!(root.join(".claude/skills/omv-versioning/SKILL.md").exists());
+        let claude_skill = fs::read_to_string(root.join(".claude/skills/omv-versioning/SKILL.md"))
+            .expect("claude skill host file should exist");
+        assert!(claude_skill.starts_with("---\n"));
+        assert!(claude_skill.contains("<!-- OMV-MANAGED-FILE"));
 
         cleanup_project_root(&root);
     }

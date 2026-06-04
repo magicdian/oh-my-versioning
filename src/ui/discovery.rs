@@ -48,6 +48,9 @@ pub fn discover_integrations(root: &Path) -> Vec<IntegrationProviderDiscovery> {
         .map(|descriptor| IntegrationProviderDiscovery {
             provider: descriptor.provider,
             detected: match descriptor.provider {
+                IntegrationProvider::Claude => {
+                    root.join(".claude").exists() || root.join("CLAUDE.md").exists()
+                }
                 IntegrationProvider::Codex => {
                     root.join(".codex").exists() || root.join("AGENTS.md").exists()
                 }
@@ -122,6 +125,32 @@ mod tests {
         );
 
         cleanup_dir(&root);
+    }
+
+    #[test]
+    fn discover_integrations_detects_claude_host() {
+        let root = temp_dir("discovery-claude");
+        fs::create_dir_all(root.join(".claude")).expect("write .claude");
+
+        let result = discover_integrations(&root);
+        assert!(
+            result
+                .iter()
+                .any(|entry| entry.provider == IntegrationProvider::Claude && entry.detected)
+        );
+
+        // A bare CLAUDE.md (no .claude dir) is also sufficient evidence.
+        let file_root = temp_dir("discovery-claude-file");
+        fs::write(file_root.join("CLAUDE.md"), "# project\n").expect("write CLAUDE.md");
+        let file_result = discover_integrations(&file_root);
+        assert!(
+            file_result
+                .iter()
+                .any(|entry| entry.provider == IntegrationProvider::Claude && entry.detected)
+        );
+
+        cleanup_dir(&root);
+        cleanup_dir(&file_root);
     }
 
     fn temp_dir(prefix: &str) -> PathBuf {
