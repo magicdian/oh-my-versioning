@@ -1,6 +1,24 @@
 schema_version = 1
 
 [[providers]]
+provider = "claude"
+selected = true
+
+[providers.detection]
+detected = true
+recommended = true
+
+[[providers.capabilities]]
+capability = "project-instructions"
+selected = true
+status = "installed"
+
+[[providers.capabilities]]
+capability = "host-skill"
+selected = true
+status = "installed"
+
+[[providers]]
 provider = "codex"
 selected = true
 
@@ -19,31 +37,8 @@ selected = true
 status = "installed"
 
 [[providers]]
-provider = "trellis"
-selected = false
-
-[providers.detection]
-detected = true
-recommended = true
-
-[[providers.capabilities]]
-capability = "spec-guide"
-selected = false
-status = "selected"
-
-[[providers.capabilities]]
-capability = "spec-index-snippet"
-selected = false
-status = "selected"
-
-[[providers.capabilities]]
-capability = "finalize-boundary"
-selected = false
-status = "selected"
-
-[[providers]]
 provider = "open-code"
-selected = false
+selected = true
 
 [providers.detection]
 detected = true
@@ -51,10 +46,33 @@ recommended = true
 
 [[providers.capabilities]]
 capability = "project-instructions"
-selected = false
+selected = true
 status = "installed"
 
 [[providers.capabilities]]
 capability = "host-skill"
-selected = false
-status = "selected"
+selected = true
+status = "installed"
+
+[[providers]]
+provider = "trellis"
+selected = true
+
+[providers.detection]
+detected = true
+recommended = true
+
+[[providers.capabilities]]
+capability = "spec-guide"
+selected = true
+status = "installed"
+
+[[providers.capabilities]]
+capability = "spec-index-snippet"
+selected = true
+status = "installed"
+
+[[providers.capabilities]]
+capability = "finalize-boundary"
+selected = true
+status = "installed"

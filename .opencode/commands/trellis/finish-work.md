@@ -64,3 +64,18 @@ python3 ./.trellis/scripts/add_session.py \
 Use the work-commit hashes produced in Phase 3.4 (visible in Step 1's `Recent commits` list, or via `git log --oneline`) for `--commit`. Do not include the archive commit hashes from Step 3. This produces a `chore: record journal` commit.
 
 Final git log order: `<work commits from 3.4>` → `chore(task): archive ...` (one or more) → `chore: record journal`.
+
+<!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->
+## OMV Finalize Boundary (Required — run BEFORE archive)
+
+This is the primary trigger for OMV version updates. Execute these steps before Step 1 (survey state).
+
+- [ ] Choose exactly one OMV `change_type`: `bugfix`, `feature`, `refactor`, `docs`, or `chore`. Ask the user if ambiguous.
+- [ ] Run `omv sync --check --json` and treat any required target drift as blocking.
+- [ ] If drift is expected and target files should be updated, run `omv sync --json`, then rerun `omv sync --check --json` before finalizing.
+- [ ] Run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <change_type> --task-id <task-dir-name> --json`.
+- [ ] Run the project build command to update lock files (e.g. `cargo build` for Rust, `npm install` for Node).
+- [ ] Commit OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, `Cargo.lock`, generated version files, etc.) with message like `chore: bump version to <new_version>`.
+- [ ] Do not treat `finalize-boundary` as target sync: non-semantic change types record a no-op finalization and do not write target files.
+- [ ] If `change_type` is unresolved, leave OMV in pending/manual-action state; do not infer a value or call `finalize-task` directly with guessed fields.
+<!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->

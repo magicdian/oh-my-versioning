@@ -15,3 +15,66 @@ mode = "managed-block"
 path = ".codex/skills/omv-versioning/SKILL.md"
 source_path = ".omv/ai/adapters/codex/SKILL.md"
 mode = "materialize"
+
+[[installations]]
+kind = "agent"
+name = "claude"
+install_mode = "materialize"
+source_contract_version = 1
+
+[[installations.targets]]
+path = "CLAUDE.md"
+source_path = ".omv/ai/adapters/claude/CLAUDE.md"
+mode = "materialize"
+
+[[installations.targets]]
+path = ".claude/skills/omv-versioning/SKILL.md"
+source_path = ".omv/ai/adapters/claude/SKILL.md"
+mode = "materialize"
+
+[[installations]]
+kind = "agent"
+name = "opencode"
+install_mode = "materialize"
+source_contract_version = 1
+
+[[installations.targets]]
+path = "AGENTS.md"
+source_path = ".omv/ai/adapters/project-instructions.md"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".opencode/skills/omv-versioning/SKILL.md"
+source_path = ".omv/ai/adapters/opencode/SKILL.md"
+mode = "materialize"
+
+[[installations]]
+kind = "spec"
+name = "trellis"
+install_mode = "materialize"
+source_contract_version = 1
+
+[[installations.targets]]
+path = ".trellis/spec/guides/omv-versioning-guide.md"
+source_path = ".omv/ai/adapters/trellis/guide.md"
+mode = "materialize"
+
+[[installations.targets]]
+path = ".trellis/spec/guides/index.md"
+source_path = ".omv/ai/adapters/trellis/index-snippet.md"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".claude/commands/trellis/finish-work.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".opencode/commands/trellis/finish-work.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".agents/skills/trellis-finish-work/SKILL.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
