@@ -741,3 +741,36 @@ Diagnosed why Claude (and fragilely OpenCode) never triggered OMV version bumps 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Fix omv init clobbering hand-edited targets.toml
+
+**Date**: 2026-06-04
+**Task**: Fix omv init clobbering hand-edited targets.toml
+**Branch**: `dev`
+
+### Summary
+
+omv init re-run rebuilt targets.toml unconditionally, resetting hand-edited runtime_export_path and dropping v2/unsupported kind-based targets. Changed persist_init_state to load existing targets and merge draft-detected ones with existing-wins semantics (merge_targets_from_draft): keep existing v1 records by id, append only new ids, preserve v2/unsupported. Added unit + regression tests (162 lib tests pass, clippy clean) and recorded the contract in backend spec index.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `20e3318` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
