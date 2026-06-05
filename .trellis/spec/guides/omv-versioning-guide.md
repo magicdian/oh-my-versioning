@@ -1,4 +1,5 @@
 <!-- OMV-MANAGED-FILE source=.omv/ai/adapters/trellis/guide.md contract=1 -->
+<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/trellis/guide.md contract=1 -->
 # OMV Versioning Guide
 
 - `.omv/state.toml` is the version source of truth.

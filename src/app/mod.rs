@@ -1854,7 +1854,11 @@ fn install_integration_target(
                 .into());
             }
             let existing = fs::read_to_string(&host_path)?;
-            let content = adapter::upsert_trellis_finish_work_finalize_block(&existing);
+            let is_v05_or_later = crate::core::integration::detect_trellis_version(project_root)
+                .map(|info| info.is_v05_or_later)
+                .unwrap_or(false);
+            let content =
+                adapter::upsert_trellis_finish_work_finalize_block(&existing, is_v05_or_later);
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;
             Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
         }
@@ -2768,7 +2772,8 @@ fn persist_init_state(
     config.build_policy = draft.build_policy;
     storage::config::save_config(omv_root, &config)?;
 
-    let targets = build_targets_from_draft(draft);
+    let existing_targets = load_targets_if_exists(omv_root)?;
+    let targets = merge_targets_from_draft(existing_targets, draft);
     storage::targets::save_targets(omv_root, &targets)?;
 
     ensure_state_exists(omv_root, &config)?;
@@ -2946,6 +2951,34 @@ fn build_targets_from_draft(draft: &InitDraft) -> OmvTargets {
     }
 }
 
+/// Merge draft-detected targets into the existing targets configuration using
+/// existing-wins semantics, so re-running `omv init` never clobbers a
+/// hand-edited `.omv/targets.toml`.
+///
+/// - Existing v1 records (including manually adjusted paths) are kept verbatim.
+/// - Draft records are appended only when their `id` is not already present.
+/// - `v2_targets` / `unsupported_targets` (kind-based config) are preserved.
+///
+/// When `existing` is the default (targets.toml absent), this reproduces the
+/// original first-init behaviour of writing the full draft-derived target set.
+fn merge_targets_from_draft(existing: OmvTargets, draft: &InitDraft) -> OmvTargets {
+    let mut merged = existing;
+    let known_ids = merged
+        .targets
+        .iter()
+        .map(|target| target.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+
+    let drafted = build_targets_from_draft(draft);
+    for target in drafted.targets {
+        if !known_ids.contains(&target.id) {
+            merged.targets.push(target);
+        }
+    }
+
+    merged
+}
+
 fn ensure_state_exists(omv_root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
     match storage::state::load_state(omv_root) {
         Ok(_) => Ok(()),
@@ -2990,8 +3023,10 @@ mod tests {
     use crate::core::date::LogicalDate;
     use crate::core::finalization::FinalizationOutcome;
     use crate::core::locale::OperatorLocale;
-    use crate::core::schema::{OmvConfig, OmvState};
-    use crate::core::target::TargetLanguage;
+    use crate::core::schema::{
+        OmvConfig, OmvState, OmvTargetRecord, OmvTargets, OmvUnsupportedTargetRecord,
+    };
+    use crate::core::target::{PreProjectStrategy, TargetLanguage};
     use crate::core::time::{LastTimeSource, TimeSource};
     use crate::core::versioning::BuildPolicy;
     use crate::errors::{NtpError, OmvError, StateError};
@@ -3000,8 +3035,8 @@ mod tests {
 
     use super::{
         AppRuntime, execute_bump, execute_current, execute_finalize_boundary,
-        execute_finalize_task, execute_sync, persist_init_state, render_help,
-        render_structured_error, render_version, resolve_finalize_boundary_task_id,
+        execute_finalize_task, execute_sync, merge_targets_from_draft, persist_init_state,
+        render_help, render_structured_error, render_version, resolve_finalize_boundary_task_id,
         resolve_locale_for_root, run_adapter, run_with_runtime,
     };
 
@@ -3079,6 +3114,99 @@ mod tests {
         let state = storage::state::load_state(&omv_root).expect("state should load");
         assert_eq!(state.build_number, 1);
         assert!(omv_root.join("ai/contract.json").exists());
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn merge_targets_preserves_existing_records_and_appends_new() {
+        // Existing config carries a hand-edited runtime_export_path plus a
+        // kind-based v2 target and an unsupported target.
+        let existing = OmvTargets {
+            schema_version: 1,
+            targets: vec![OmvTargetRecord {
+                id: "workspace-rust".to_owned(),
+                language: TargetLanguage::Rust,
+                root: ".".to_owned(),
+                manifest_path: "Cargo.toml".to_owned(),
+                runtime_export_path: "sources/host/crates/xdb/src/generated/version.rs".to_owned(),
+                strategy: PreProjectStrategy::IntentOnly,
+                enabled: true,
+            }],
+            v2_targets: Vec::new(),
+            unsupported_targets: vec![OmvUnsupportedTargetRecord {
+                id: "legacy-text".to_owned(),
+                kind: "text-scalar".to_owned(),
+                adapter: "custom".to_owned(),
+                root: ".".to_owned(),
+                enabled: true,
+                paths: vec!["VERSION".to_owned()],
+            }],
+        };
+
+        // Draft re-detects Rust (same id, must NOT clobber) and adds Go (new id).
+        let draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust, TargetLanguage::Go]);
+        let merged = merge_targets_from_draft(existing, &draft);
+
+        let rust = merged
+            .targets
+            .iter()
+            .find(|t| t.id == "workspace-rust")
+            .expect("existing rust target should be preserved");
+        assert_eq!(
+            rust.runtime_export_path, "sources/host/crates/xdb/src/generated/version.rs",
+            "hand-edited path must survive re-init"
+        );
+        assert!(
+            merged.targets.iter().any(|t| t.id == "workspace-go"),
+            "newly detected language target should be appended"
+        );
+        assert_eq!(
+            merged
+                .targets
+                .iter()
+                .filter(|t| t.id == "workspace-rust")
+                .count(),
+            1,
+            "merge must not duplicate the existing id"
+        );
+        assert_eq!(
+            merged.unsupported_targets.len(),
+            1,
+            "unsupported/kind-based targets must be preserved"
+        );
+    }
+
+    #[test]
+    fn merge_targets_into_default_reproduces_first_init() {
+        let draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust]);
+        let merged = merge_targets_from_draft(OmvTargets::default(), &draft);
+        // Default (targets.toml absent) must reproduce the original first-init
+        // behaviour: the full draft-derived target set is written verbatim.
+        assert_eq!(merged.targets.len(), TargetLanguage::all().len());
+        assert!(merged.targets.iter().any(|t| t.id == "workspace-rust"));
+    }
+
+    #[test]
+    fn persist_init_state_twice_keeps_hand_edited_targets() {
+        let omv_root = temp_omv_root("persist-init-twice");
+        let draft = InitDraft::from_detected_languages(&[TargetLanguage::Rust]);
+        persist_init_state(&omv_root, &draft).expect("first init should persist");
+
+        // Simulate a user hand-editing the runtime export path after init.
+        let mut targets = storage::targets::load_targets(&omv_root).expect("targets should load");
+        targets.targets[0].runtime_export_path =
+            "sources/host/crates/xdb/src/generated/version.rs".to_owned();
+        storage::targets::save_targets(&omv_root, &targets).expect("edited targets should save");
+
+        // Re-running init (e.g. to add an agent integration) must not reset it.
+        persist_init_state(&omv_root, &draft).expect("second init should persist");
+
+        let after = storage::targets::load_targets(&omv_root).expect("targets should reload");
+        assert_eq!(
+            after.targets[0].runtime_export_path,
+            "sources/host/crates/xdb/src/generated/version.rs"
+        );
 
         cleanup_omv_root(&omv_root);
     }

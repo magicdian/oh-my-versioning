@@ -236,6 +236,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "- Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.",
         "- Change the managed version with `omv bump --json`.",
         "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.",
+        "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together.",
         "- `.omv/targets.toml` kind-based targets can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces; update OMV if a configured kind is reported as unsupported.",
         "- Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.",
         "- Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.",
@@ -319,7 +320,25 @@ pub fn refresh_selected(
     install_selected(omv_root, project_root, &effective)
 }
 
-pub fn trellis_finish_work_finalize_block() -> String {
+pub fn trellis_finish_work_finalize_block(is_v05_or_later: bool) -> String {
+    if is_v05_or_later {
+        // Trellis v0.5+: the OMV version bump already happens at the Phase 3.4
+        // commit-confirmation boundary. Finish-work must NOT bump again, so this
+        // block is verification-only and never calls `omv event finalize-boundary`.
+        return [
+            "## OMV Finalize Boundary (Verify — run BEFORE archive)",
+            "",
+            "For Trellis v0.5+, the OMV version bump already happened at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`). Do NOT bump again here. These steps only verify the commit-boundary bump landed.",
+            "",
+            "- [ ] Do NOT run `omv event finalize-boundary` in finish-work for Trellis v0.5+; the unit of work was already finalized at the commit boundary.",
+            "- [ ] Run `omv sync --check --json`. Treat any required target drift as blocking: drift here means the commit-boundary bump was not synced/committed — surface it and resolve before archiving.",
+            "- [ ] If `Cargo.lock` / other lock files or generated version files are uncommitted (e.g. the build step was skipped after the commit-boundary bump), run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) and commit them before archiving.",
+        ]
+        .join("\n");
+    }
+
+    // Trellis v0.4.x (pre-skill-architecture): finish-work remains the bump
+    // boundary. Preserve the historical bump-style block for backward compat.
     [
         "## OMV Finalize Boundary (Required — run BEFORE archive)",
         "",
@@ -337,10 +356,13 @@ pub fn trellis_finish_work_finalize_block() -> String {
     .join("\n")
 }
 
-pub fn upsert_trellis_finish_work_finalize_block(existing: &str) -> String {
+pub fn upsert_trellis_finish_work_finalize_block(existing: &str, is_v05_or_later: bool) -> String {
     let begin = format!("{MANAGED_BEGIN_PREFIX}{TRELLIS_FINISH_WORK_BLOCK_NAME} -->");
     let end = format!("{MANAGED_END_PREFIX}{TRELLIS_FINISH_WORK_BLOCK_NAME} -->");
-    let block = format!("{begin}\n{}\n{end}\n", trellis_finish_work_finalize_block());
+    let block = format!(
+        "{begin}\n{}\n{end}\n",
+        trellis_finish_work_finalize_block(is_v05_or_later)
+    );
 
     let without_existing = remove_managed_block(existing, &begin, &end);
     let marker = "\n## Quick Check Flow";
@@ -906,7 +928,7 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` to preview target changes.",
                 "- Use `omv sync --check --json` to verify drift without mutation.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability state where available.",
-                "- If the Trellis finalize-boundary capability is installed, the `/trellis:finish-work` skill will trigger `omv event finalize-boundary` as its first required step (before archive). The finish-work skill's OMV block contains the full checklist. Supply an explicit `change_type`; do not infer it. If finish-work was not used, invoke finalize-boundary manually before considering the work complete.",
+                "- If the Trellis finalize-boundary capability is installed: for Trellis v0.5+ the finalize-boundary bump happens at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/trellis:finish-work` (whose OMV block is verification-only). For Trellis v0.4.x, `/trellis:finish-work` remains the bump trigger (legacy behavior). Supply an explicit `change_type`; do not infer it.",
                 "- Use `omv bump --json` for writes.",
                 "- Do not trust manifest versions as authority.",
                 "- Do not treat this guide or other host files as OMV authority.",
@@ -936,7 +958,8 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` before editing version-sensitive surfaces.",
                 "- Use `omv sync --check --json` to verify target drift without writing.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.",
-                "- At completion boundaries (when `/trellis:finish-work` or equivalent wrap-up is invoked), the OMV finalize-boundary helper from `.omv/ai/contract.json` will be called with an explicit `change_type`. If the project uses Trellis, this happens automatically via the finish-work skill's OMV block. Otherwise, call it manually after tests pass.",
+                "- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ this runs at the commit-confirmation boundary, not at `/trellis:finish-work` (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.",
+                "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, generated version files) together.",
                 "- Use `omv bump --json` to advance the managed version.",
                 "- Do not edit native manifest versions directly.",
                 "- Treat this host file as a derived projection; `.omv/*` and `.omv/ai/*` remain authoritative.",
@@ -1012,8 +1035,8 @@ mod tests {
     #[test]
     fn trellis_finish_work_managed_block_is_inserted_once_before_quick_check() {
         let input = "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n";
-        let once = upsert_trellis_finish_work_finalize_block(input);
-        let twice = upsert_trellis_finish_work_finalize_block(&once);
+        let once = upsert_trellis_finish_work_finalize_block(input, false);
+        let twice = upsert_trellis_finish_work_finalize_block(&once, false);
 
         assert_eq!(once, twice);
         assert_eq!(twice.matches("OMV-MANAGED-BEGIN").count(), 1);
@@ -1027,6 +1050,35 @@ mod tests {
             .find("## Quick Check Flow")
             .expect("quick check should exist");
         assert!(block < quick);
+    }
+
+    #[test]
+    fn trellis_finish_work_block_v04_is_bump_style() {
+        let block = super::trellis_finish_work_finalize_block(false);
+        assert!(block.contains("## OMV Finalize Boundary"));
+        assert!(
+            block.contains("omv event finalize-boundary --provider trellis --boundary finish-work")
+        );
+    }
+
+    #[test]
+    fn trellis_finish_work_block_v05_is_verification_style() {
+        let block = super::trellis_finish_work_finalize_block(true);
+        assert!(block.contains("## OMV Finalize Boundary"));
+        // No second bump: verification-only block must not INVOKE finalize-boundary.
+        assert!(!block.contains("omv event finalize-boundary --provider trellis"));
+        // Verification language and explicit do-not-bump statement.
+        assert!(block.contains("omv sync --check"));
+        assert!(block.contains("Do NOT run `omv event finalize-boundary`"));
+    }
+
+    #[test]
+    fn trellis_finish_work_managed_block_v05_omits_finalize_boundary() {
+        let input = "# Finish Work\n\n## Quick Check Flow\n\nbody\n";
+        let rendered = upsert_trellis_finish_work_finalize_block(input, true);
+        assert!(rendered.contains("## OMV Finalize Boundary"));
+        assert!(!rendered.contains("omv event finalize-boundary --provider trellis"));
+        assert!(rendered.contains("omv sync --check"));
     }
 
     #[test]

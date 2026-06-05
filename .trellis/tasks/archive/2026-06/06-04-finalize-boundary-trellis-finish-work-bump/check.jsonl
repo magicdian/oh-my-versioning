@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "校验 v0.5+ commit-time 触发、v0.4 兼容、版本检测落地是否符合 backend 设计决策"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "校验 v0.4/v0.5 分支单测覆盖与质量门槛"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "校验块文本→host 投影文件的跨层一致性（重新 apply 后产物正确）"}

@@ -46,3 +46,9 @@ This is especially important for:
 - version format strings
 - target language identifiers
 - `.omv` schema fields
+
+<!-- OMV-MANAGED-BEGIN:integration-trellis-spec-index-snippet -->
+## OMV
+
+- [OMV Versioning Guide](./omv-versioning-guide.md) | Managed version and integration source rules
+<!-- OMV-MANAGED-END:integration-trellis-spec-index-snippet -->

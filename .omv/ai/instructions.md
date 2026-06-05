@@ -9,6 +9,7 @@
 - Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.
 - Change the managed version with `omv bump --json`.
 - At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.
+- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together.
 - `.omv/targets.toml` kind-based targets can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces; update OMV if a configured kind is reported as unsupported.
 - Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.
 - Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.
