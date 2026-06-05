@@ -71,16 +71,11 @@ Use the work-commit hashes produced in Phase 3.4 (visible in Step 1's `Recent co
 Final git log order: `<work commits from 3.4>` → `chore(task): archive ...` (one or more) → `chore: record journal`.
 
 <!-- OMV-MANAGED-BEGIN:spec-trellis-finalize-boundary-finish-work -->
-## OMV Finalize Boundary (Required — run BEFORE archive)
+## OMV Finalize Boundary (Verify — run BEFORE archive)
 
-This is the primary trigger for OMV version updates. Execute these steps before Step 1 (survey state).
+For Trellis v0.5+, the OMV version bump already happened at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`). Do NOT bump again here. These steps only verify the commit-boundary bump landed.
 
-- [ ] Choose exactly one OMV `change_type`: `bugfix`, `feature`, `refactor`, `docs`, or `chore`. Ask the user if ambiguous.
-- [ ] Run `omv sync --check --json` and treat any required target drift as blocking.
-- [ ] If drift is expected and target files should be updated, run `omv sync --json`, then rerun `omv sync --check --json` before finalizing.
-- [ ] Run `omv event finalize-boundary --provider trellis --boundary finish-work --change-type <change_type> --task-id <task-dir-name> --json`.
-- [ ] Run the project build command to update lock files (e.g. `cargo build` for Rust, `npm install` for Node).
-- [ ] Commit OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, `Cargo.lock`, generated version files, etc.) with message like `chore: bump version to <new_version>`.
-- [ ] Do not treat `finalize-boundary` as target sync: non-semantic change types record a no-op finalization and do not write target files.
-- [ ] If `change_type` is unresolved, leave OMV in pending/manual-action state; do not infer a value or call `finalize-task` directly with guessed fields.
+- [ ] Do NOT run `omv event finalize-boundary` in finish-work for Trellis v0.5+; the unit of work was already finalized at the commit boundary.
+- [ ] Run `omv sync --check --json`. Treat any required target drift as blocking: drift here means the commit-boundary bump was not synced/committed — surface it and resolve before archiving.
+- [ ] If `Cargo.lock` / other lock files or generated version files are uncommitted (e.g. the build step was skipped after the commit-boundary bump), run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) and commit them before archiving.
 <!-- OMV-MANAGED-END:spec-trellis-finalize-boundary-finish-work -->

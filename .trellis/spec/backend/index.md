@@ -100,6 +100,29 @@ Also read:
   and `.omv/ai/adapters/project-instructions.md` describe this convention for
   v0.5+ projects. v0.4 `/finish-work` may auto-trigger the helper as part of
   its own workflow.
+- The Trellis finish-work managed block (`spec-trellis-finalize-boundary-finish-work`)
+  is **version-aware**: `trellis_finish_work_finalize_block(is_v05_or_later)`
+  (src/adapter.rs) renders two variants and the install path
+  (`detect_trellis_version(project_root).map(|i| i.is_v05_or_later).unwrap_or(false)`,
+  src/app/mod.rs) selects which. v0.5+ → a **verification-only** block that does
+  NOT call `omv event finalize-boundary` (the bump already happened at the commit
+  boundary; finish-work only runs `omv sync --check --json` and reminds to
+  build/commit lock files if missed). v0.4 → the legacy bump-style block that
+  still calls `--provider trellis --boundary finish-work`. Without
+  `.trellis/.version`, detection defaults to `false` (v0.4 bump-style) for
+  backward compat. This is the fix for the double-bump where one unit of work was
+  bumped at both `--boundary commit` and `--boundary finish-work` (fingerprints
+  differ by provider+boundary, so idempotency does not dedupe across them).
+- After ANY semantic finalize-boundary bump, the canonical commit-time guidance
+  (`.omv/ai/instructions.md`, `.omv/ai/adapters/project-instructions.md`) requires
+  running the project build command (`cargo build` / `npm install`) to refresh
+  lock files, then committing the OMV-generated files (`.omv/state.toml`,
+  `.omv/finalizations.toml`, lock files, generated version exports) together —
+  otherwise `Cargo.lock` is silently left out of the bump commit.
+- Known gap (follow-up): the `adapters/codex/AGENTS.md` generator
+  (src/adapter.rs) still carries the older "At finalize boundaries" wording
+  without the build/lock step and is not yet version-aware; it is a separate
+  projection variant not exercised in this repo.
 - The `finalize-boundary` capability is owned by the Trellis provider, but its
   managed-block target set is the union, over the *selected* in-scope agent
   providers, of each agent's own Trellis finish-work entrypoint:

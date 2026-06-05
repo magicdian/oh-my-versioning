@@ -1,6 +1,6 @@
 [package]
 name = "omv"
-version = "2606.4.4"
+version = "2606.5.1"
 edition = "2024"
 description = "Date-based version management with one local source of truth."
 homepage = "https://github.com/magicdian/oh-my-versioning"

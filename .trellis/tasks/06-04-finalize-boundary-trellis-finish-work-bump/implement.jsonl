@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "含 trellis 版本检测、finalize-boundary 触发约定、v0.5+ 应 commit-time 触发不 defer 到 finish-work 的设计决策——本次正是落地该约定"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "改动落在 src/adapter.rs（块文本投影）/ src/app/mod.rs（安装入口）/ src/core/integration.rs（版本检测），需符合模块边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "需为 v0.4/v0.5 两个版本分支加单测，遵循测试门槛"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "adapter projection 改动跨 .omv/ai/* 文本 → host 投影文件多层，需跨层一致性思考"}

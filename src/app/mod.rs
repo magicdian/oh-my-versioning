@@ -1854,7 +1854,11 @@ fn install_integration_target(
                 .into());
             }
             let existing = fs::read_to_string(&host_path)?;
-            let content = adapter::upsert_trellis_finish_work_finalize_block(&existing);
+            let is_v05_or_later = crate::core::integration::detect_trellis_version(project_root)
+                .map(|info| info.is_v05_or_later)
+                .unwrap_or(false);
+            let content =
+                adapter::upsert_trellis_finish_work_finalize_block(&existing, is_v05_or_later);
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;
             Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
         }
@@ -3150,8 +3154,7 @@ mod tests {
             .find(|t| t.id == "workspace-rust")
             .expect("existing rust target should be preserved");
         assert_eq!(
-            rust.runtime_export_path,
-            "sources/host/crates/xdb/src/generated/version.rs",
+            rust.runtime_export_path, "sources/host/crates/xdb/src/generated/version.rs",
             "hand-edited path must survive re-init"
         );
         assert!(
@@ -3159,7 +3162,11 @@ mod tests {
             "newly detected language target should be appended"
         );
         assert_eq!(
-            merged.targets.iter().filter(|t| t.id == "workspace-rust").count(),
+            merged
+                .targets
+                .iter()
+                .filter(|t| t.id == "workspace-rust")
+                .count(),
             1,
             "merge must not duplicate the existing id"
         );
