@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 21
-- **Last Active**: 2026-06-04
+- **Total Sessions**: 22
+- **Last Active**: 2026-06-05
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~776 | Active |
+| `journal-1.md` | ~809 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 22 | 2026-06-05 | Version-aware Trellis finalize-boundary (fix double-bump) | `fe2bb86` | `dev` |
 | 21 | 2026-06-04 | Fix omv init clobbering hand-edited targets.toml | `20e3318` | `dev` |
 | 20 | 2026-06-04 | Extend finalize-boundary to selected agents' finish-work entrypoints | `37478e5` | `dev` |
 | 19 | 2026-06-04 | Add Claude Code agent support | `29d436d` | `dev` |

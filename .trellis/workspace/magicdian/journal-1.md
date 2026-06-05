@@ -774,3 +774,36 @@ omv init re-run rebuilt targets.toml unconditionally, resetting hand-edited runt
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Version-aware Trellis finalize-boundary (fix double-bump)
+
+**Date**: 2026-06-05
+**Task**: Version-aware Trellis finalize-boundary (fix double-bump)
+**Branch**: `dev`
+
+### Summary
+
+Fixed a unit of work being version-bumped twice (commit boundary + finish-work boundary). trellis_finish_work_finalize_block now takes is_v05_or_later and renders two variants: v0.5+ verification-only (no second finalize-boundary call), v0.4 legacy bump-style. The install path consumes detect_trellis_version (defaults to v0.4 when .trellis/.version absent), making the previously-dead is_v05_or_later field drive behavior. Also added build-then-commit-lock guidance to canonical commit-time instructions (fixes Cargo.lock being omitted from bump commits). Re-projected this repo's own host finish-work files (Trellis 0.5.19) to the verification block and validated via dogfooding: this session's finish-work did NOT re-bump. 165 lib tests + clippy + fmt pass. Version 2606.4.4 -> 2606.5.1.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fe2bb86` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
