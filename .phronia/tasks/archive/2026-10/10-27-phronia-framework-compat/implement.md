@@ -18,9 +18,9 @@ in the order it was performed and the validation gate used before release.
       `cargo clippy --all-targets --all-features -- -D warnings`
       `cargo test --all-targets --all-features`
       `omv sync --check --json`
-- [ ] Bump to the next daily build, commit, push `dev`, merge to `main`,
-      tag, and publish the GitHub/npm release.
-- [ ] Archive this task and record the session journal.
+- [x] Bump to `2610.27.2` and commit the version bump.
+- [ ] Push `dev`, merge to `main`, tag, and publish the GitHub/npm release.
+- [x] Archive this task and record the session journal.
 
 ## Rollback
 
