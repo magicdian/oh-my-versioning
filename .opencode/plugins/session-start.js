@@ -1,101 +1,152 @@
-/* global process */
-/**
- * Trellis Session Start Plugin
- *
- * Injects context when user sends the first message in a session.
- * Uses OpenCode's chat.message hook directly so the context persists in history.
- */
+// phronia-shim: opencode@v1
+// shim-version: 2610.27.6
+// build-id: 540bd837ee86
+// content-hash: 11b8405666fe8d870aa6a9d18bf3d49f225d38f5aef05ca1c6f7a360b5722cb7
+// DO NOT EDIT. Regenerate with: pnpm build:shims
 
-import { TrellisContext, contextCollector, debugLog, isTrellisSubagent } from "../lib/trellis-context.js"
-import {
-  buildSessionContext,
-  hasPersistedInjectedContext,
-  markContextInjected,
-} from "../lib/session-utils.js"
+import { createRequire as __phroniaCreateRequire } from "node:module"; const require = __phroniaCreateRequire(import.meta.url);
 
-// OpenCode 1.2.x expects plugins to be factory functions (see inject-subagent-context.js comment).
-export default async ({ directory, client }) => {
-  const ctx = new TrellisContext(directory)
-  debugLog("session", "Plugin loaded, directory:", directory)
-
-  return {
-    event: ({ event }) => {
-      try {
-        if (event?.type === "session.compacted" && event?.properties?.sessionID) {
-          const sessionID = event.properties.sessionID
-          contextCollector.clear(sessionID)
-          debugLog("session", "Cleared processed flag after compaction for session:", sessionID)
-        }
-      } catch (error) {
-        debugLog(
-          "session",
-          "Error in event hook:",
-          error instanceof Error ? error.message : String(error),
-        )
-      }
-    },
-
-    // chat.message - triggered when user sends a message.
-    // Modify the message in-place so the context is persisted with updateMessage/updatePart.
-    "chat.message": async (input, output) => {
-      try {
-        const sessionID = input.sessionID
-        const agent = input.agent || "unknown"
-        debugLog("session", "chat.message called, sessionID:", sessionID, "agent:", agent)
-
-        // Skip Trellis sub-agent turns — sub-agent context is injected by
-        // `inject-subagent-context.js` on the parent's tool.execute.before;
-        // re-injecting the main-session SessionStart here would drown that.
-        if (isTrellisSubagent(input)) {
-          debugLog("session", "Skipping trellis subagent turn:", agent)
-          return
-        }
-
-        if (process.env.TRELLIS_HOOKS === "0" || process.env.TRELLIS_DISABLE_HOOKS === "1") {
-          debugLog("session", "Skipping - TRELLIS_HOOKS disabled")
-          return
-        }
-
-        if (process.env.OPENCODE_NON_INTERACTIVE === "1") {
-          debugLog("session", "Skipping - non-interactive mode")
-          return
-        }
-
-        if (contextCollector.isProcessed(sessionID)) {
-          debugLog("session", "Skipping - session already processed")
-          return
-        }
-
-        if (await hasPersistedInjectedContext(client, ctx.directory, sessionID)) {
-          contextCollector.markProcessed(sessionID)
-          debugLog("session", "Skipping - session already contains persisted Trellis context")
-          return
-        }
-
-        const context = buildSessionContext(ctx, input)
-        debugLog("session", "Built context, length:", context.length)
-
-        const parts = output?.parts || []
-        const textPartIndex = parts.findIndex(
-          p => p.type === "text" && p.text !== undefined
-        )
-
-        if (textPartIndex !== -1) {
-          const originalText = parts[textPartIndex].text || ""
-          parts[textPartIndex].text = `${context}\n\n---\n\n${originalText}`
-          markContextInjected(parts[textPartIndex])
-          debugLog("session", "Injected context into chat.message text part, length:", context.length)
-        } else {
-          const injectedPart = { type: "text", text: context }
-          markContextInjected(injectedPart)
-          parts.unshift(injectedPart)
-          debugLog("session", "Prepended new text part with context, length:", context.length)
-        }
-
-        contextCollector.markProcessed(sessionID)
-      } catch (error) {
-        debugLog("session", "Error in chat.message:", error.message, error.stack)
-      }
-    },
+// packages/cli/src/templates/opencode/lib/phronia-client.js
+import { spawnSync } from "node:child_process";
+function resolveCli() {
+  const explicit = process.env.PHRONIA_CLI_PATH;
+  if (explicit) {
+    return explicit.endsWith(".py") ? { command: process.env.PYTHON || "python3", args: [explicit] } : { command: process.execPath, args: [explicit] };
   }
+  return { command: process.platform === "win32" ? "phronia.cmd" : "phronia", args: [] };
 }
+function runContext({ event, platform, projectRoot, input, render = false }) {
+  const cli = resolveCli();
+  const args = [
+    ...cli.args,
+    "context",
+    "--event",
+    event,
+    "--platform",
+    platform,
+    "--project-root",
+    projectRoot,
+    "--input",
+    "-"
+  ];
+  if (render) {
+    args.push("--render");
+  } else {
+    args.push("--json");
+  }
+  const result = spawnSync(cli.command, args, {
+    input: JSON.stringify(input ?? {}),
+    encoding: "utf8",
+    timeout: 15e3,
+    env: process.env
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `phronia context exited ${result.status}`);
+  }
+  return render ? result.stdout : JSON.parse(result.stdout);
+}
+function blocksText(response) {
+  if (!response || !Array.isArray(response.blocks)) {
+    return "";
+  }
+  return response.blocks.map((block) => block.text).join("\n\n");
+}
+
+// packages/cli/src/templates/opencode/lib/context-visibility.js
+var CONTEXT_PART_KINDS = {
+  sessionStart: { offset: 2n, slot: "0" },
+  workflowState: { offset: 1n, slot: "1" }
+};
+var MAX_CONTEXT_PART_OFFSET = Object.values(CONTEXT_PART_KINDS).reduce(
+  (maximum, definition) => definition.offset > maximum ? definition.offset : maximum,
+  0n
+);
+var MESSAGES_TRANSFORM_HOOK = "experimental.chat.messages.transform";
+var PHRONIA_SUBAGENT_RE = /^(?:phronia|trellis)-/i;
+function isPhroniaSubagent(input) {
+  if (!input || typeof input !== "object") return false;
+  const agent = typeof input.agent === "string" ? input.agent.trim() : "";
+  return PHRONIA_SUBAGENT_RE.test(agent);
+}
+function findLatestUserMessageIndex(messages) {
+  if (!Array.isArray(messages)) return -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.info?.role === "user") return i;
+  }
+  return -1;
+}
+function platformInputFromMessages(messages) {
+  const index = findLatestUserMessageIndex(messages);
+  if (index < 0) return null;
+  const info = messages[index].info;
+  if (!info || typeof info !== "object") return null;
+  return {
+    sessionID: info.sessionID,
+    agent: info.agent
+  };
+}
+function transcriptHasAssistantMessage(messages) {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((message) => message?.info?.role === "assistant");
+}
+function prependEphemeralText(messages, text) {
+  if (!Array.isArray(messages)) return false;
+  if (typeof text !== "string") return false;
+  const index = findLatestUserMessageIndex(messages);
+  if (index < 0) return false;
+  const original = messages[index];
+  const parts = Array.isArray(original.parts) ? original.parts.slice() : [];
+  parts.unshift({
+    type: "text",
+    text,
+    synthetic: true
+  });
+  messages[index] = {
+    ...original,
+    parts
+  };
+  return true;
+}
+
+// packages/cli/src/templates/opencode/plugins/session-start.js
+var FIRST_REPLY_NOTICE_RE = /<first-reply-notice>[\s\S]*?<\/first-reply-notice>\s*/g;
+function stripFirstReplyNotice(context) {
+  return context.replace(FIRST_REPLY_NOTICE_RE, "");
+}
+var session_start_default = async ({ directory }) => {
+  return {
+    [MESSAGES_TRANSFORM_HOOK]: async (_input, output) => {
+      const messages = output?.messages;
+      const platformInput = platformInputFromMessages(messages);
+      if (!platformInput || isPhroniaSubagent(platformInput)) {
+        return;
+      }
+      if (process.env.PHRONIA_HOOKS === "0" || process.env.PHRONIA_DISABLE_HOOKS === "1") {
+        return;
+      }
+      if (process.env.OPENCODE_NON_INTERACTIVE === "1") {
+        return;
+      }
+      const response = runContext({
+        event: "session-start",
+        platform: "opencode",
+        projectRoot: directory,
+        input: platformInput
+      });
+      let context = blocksText(response);
+      if (!context) {
+        return;
+      }
+      if (transcriptHasAssistantMessage(messages)) {
+        context = stripFirstReplyNotice(context);
+      }
+      prependEphemeralText(messages, context);
+    }
+  };
+};
+export {
+  session_start_default as default
+};

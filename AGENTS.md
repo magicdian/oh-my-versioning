@@ -1,24 +1,24 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
+<!-- PHRONIA:START -->
+# Phronia Instructions
 
 These instructions are for AI assistants working in this project.
 
-This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+This project is managed by Phronia. The working knowledge you need lives under `.phronia/`:
 
-- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
-- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
-- `.trellis/workspace/` — per-developer journals and session traces
-- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+- `.phronia/workflow.md` — development phases, when to create tasks, skill routing
+- `.phronia/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.phronia/workspace/` — per-developer journals and session traces
+- `.phronia/tasks/` — active and archived tasks (PRDs, research, jsonl context)
 
-If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+If a Phronia command is available on your platform (e.g. `/phronia:finish-work`, `/phronia:continue`), prefer it over manual steps. Not every platform exposes every command.
 
 If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
-- `.agents/skills/` — reusable Trellis skills
+- `.agents/skills/` — reusable Phronia skills
 - `.codex/agents/` — optional custom subagents
 
-Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+Managed by Phronia. Edits outside this block are preserved; edits inside may be overwritten by a future `phronia update`.
 
-<!-- TRELLIS:END -->
+<!-- PHRONIA:END -->
 
 <!-- OMV-MANAGED-BEGIN:integration-project-instructions -->
 <!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->

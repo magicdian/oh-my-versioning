@@ -1,0 +1,147 @@
+# Phronia adoption report
+
+- From: 0.5.19
+- To: 2610.27.6
+- Backup: /Users/magicdian/.phronia/backups/991eed396f89/2026-10-27T09-19-31-436Z
+- Platforms: claude-code, opencode, codex
+
+## Dropped (regenerated from templates)
+- .claude/commands/trellis/continue.md
+- .claude/skills/trellis-before-dev/SKILL.md
+- .claude/skills/trellis-brainstorm/SKILL.md
+- .claude/skills/trellis-break-loop/SKILL.md
+- .claude/skills/trellis-check/SKILL.md
+- .claude/skills/trellis-update-spec/SKILL.md
+- .claude/skills/trellis-meta/references/customize-local/add-project-local-conventions.md
+- .claude/skills/trellis-meta/references/customize-local/change-agents.md
+- .claude/skills/trellis-meta/references/customize-local/change-context-loading.md
+- .claude/skills/trellis-meta/references/customize-local/change-hooks.md
+- .claude/skills/trellis-meta/references/customize-local/change-skills-or-commands.md
+- .claude/skills/trellis-meta/references/customize-local/change-spec-structure.md
+- .claude/skills/trellis-meta/references/customize-local/change-task-lifecycle.md
+- .claude/skills/trellis-meta/references/customize-local/change-workflow.md
+- .claude/skills/trellis-meta/references/customize-local/overview.md
+- .claude/skills/trellis-meta/references/local-architecture/context-injection.md
+- .claude/skills/trellis-meta/references/local-architecture/generated-files.md
+- .claude/skills/trellis-meta/references/local-architecture/overview.md
+- .claude/skills/trellis-meta/references/local-architecture/spec-system.md
+- .claude/skills/trellis-meta/references/local-architecture/task-system.md
+- .claude/skills/trellis-meta/references/local-architecture/workflow.md
+- .claude/skills/trellis-meta/references/local-architecture/workspace-memory.md
+- .claude/skills/trellis-meta/references/platform-files/agents.md
+- .claude/skills/trellis-meta/references/platform-files/hooks-and-settings.md
+- .claude/skills/trellis-meta/references/platform-files/overview.md
+- .claude/skills/trellis-meta/references/platform-files/platform-map.md
+- .claude/skills/trellis-meta/references/platform-files/skills-and-commands.md
+- .claude/skills/trellis-meta/SKILL.md
+- .claude/agents/trellis-check.md
+- .claude/agents/trellis-implement.md
+- .claude/agents/trellis-research.md
+- .claude/hooks/inject-workflow-state.py
+- .opencode/agents/trellis-check.md
+- .opencode/agents/trellis-implement.md
+- .opencode/agents/trellis-research.md
+- .opencode/lib/session-utils.js
+- .opencode/plugins/inject-subagent-context.js
+- .opencode/plugins/inject-workflow-state.js
+- .opencode/plugins/session-start.js
+- .opencode/commands/trellis/continue.md
+- .opencode/skills/trellis-before-dev/SKILL.md
+- .opencode/skills/trellis-brainstorm/SKILL.md
+- .opencode/skills/trellis-break-loop/SKILL.md
+- .opencode/skills/trellis-check/SKILL.md
+- .opencode/skills/trellis-update-spec/SKILL.md
+- .opencode/skills/trellis-meta/references/customize-local/add-project-local-conventions.md
+- .opencode/skills/trellis-meta/references/customize-local/change-agents.md
+- .opencode/skills/trellis-meta/references/customize-local/change-context-loading.md
+- .opencode/skills/trellis-meta/references/customize-local/change-hooks.md
+- .opencode/skills/trellis-meta/references/customize-local/change-skills-or-commands.md
+- .opencode/skills/trellis-meta/references/customize-local/change-spec-structure.md
+- .opencode/skills/trellis-meta/references/customize-local/change-task-lifecycle.md
+- .opencode/skills/trellis-meta/references/customize-local/change-workflow.md
+- .opencode/skills/trellis-meta/references/customize-local/overview.md
+- .opencode/skills/trellis-meta/references/local-architecture/context-injection.md
+- .opencode/skills/trellis-meta/references/local-architecture/generated-files.md
+- .opencode/skills/trellis-meta/references/local-architecture/overview.md
+- .opencode/skills/trellis-meta/references/local-architecture/spec-system.md
+- .opencode/skills/trellis-meta/references/local-architecture/task-system.md
+- .opencode/skills/trellis-meta/references/local-architecture/workflow.md
+- .opencode/skills/trellis-meta/references/local-architecture/workspace-memory.md
+- .opencode/skills/trellis-meta/references/platform-files/agents.md
+- .opencode/skills/trellis-meta/references/platform-files/hooks-and-settings.md
+- .opencode/skills/trellis-meta/references/platform-files/overview.md
+- .opencode/skills/trellis-meta/references/platform-files/platform-map.md
+- .opencode/skills/trellis-meta/references/platform-files/skills-and-commands.md
+- .opencode/skills/trellis-meta/SKILL.md
+- .agents/skills/trellis-continue/SKILL.md
+- .agents/skills/trellis-before-dev/SKILL.md
+- .agents/skills/trellis-brainstorm/SKILL.md
+- .agents/skills/trellis-break-loop/SKILL.md
+- .agents/skills/trellis-check/SKILL.md
+- .agents/skills/trellis-update-spec/SKILL.md
+- .agents/skills/trellis-meta/references/customize-local/add-project-local-conventions.md
+- .agents/skills/trellis-meta/references/customize-local/change-agents.md
+- .agents/skills/trellis-meta/references/customize-local/change-context-loading.md
+- .agents/skills/trellis-meta/references/customize-local/change-hooks.md
+- .agents/skills/trellis-meta/references/customize-local/change-skills-or-commands.md
+- .agents/skills/trellis-meta/references/customize-local/change-spec-structure.md
+- .agents/skills/trellis-meta/references/customize-local/change-task-lifecycle.md
+- .agents/skills/trellis-meta/references/customize-local/change-workflow.md
+- .agents/skills/trellis-meta/references/customize-local/overview.md
+- .agents/skills/trellis-meta/references/local-architecture/context-injection.md
+- .agents/skills/trellis-meta/references/local-architecture/generated-files.md
+- .agents/skills/trellis-meta/references/local-architecture/overview.md
+- .agents/skills/trellis-meta/references/local-architecture/spec-system.md
+- .agents/skills/trellis-meta/references/local-architecture/task-system.md
+- .agents/skills/trellis-meta/references/local-architecture/workflow.md
+- .agents/skills/trellis-meta/references/local-architecture/workspace-memory.md
+- .agents/skills/trellis-meta/references/platform-files/agents.md
+- .agents/skills/trellis-meta/references/platform-files/hooks-and-settings.md
+- .agents/skills/trellis-meta/references/platform-files/overview.md
+- .agents/skills/trellis-meta/references/platform-files/platform-map.md
+- .agents/skills/trellis-meta/references/platform-files/skills-and-commands.md
+- .agents/skills/trellis-meta/SKILL.md
+- .agents/skills/trellis-start/SKILL.md
+- .codex/agents/trellis-check.toml
+- .codex/agents/trellis-implement.toml
+- .codex/agents/trellis-research.toml
+- .codex/hooks/inject-workflow-state.py
+- .claude/hooks/inject-subagent-context.py
+- .claude/hooks/session-start.py
+- .claude/settings.json
+- .opencode/lib/trellis-context.js
+- .opencode/package.json
+- .codex/hooks/session-start.py
+- .codex/hooks.json
+- .codex/config.toml
+- .claude/skills/trellis-spec-bootstarp/references/mcp-setup.md
+- .claude/skills/trellis-spec-bootstarp/references/repository-analysis.md
+- .claude/skills/trellis-spec-bootstarp/references/spec-task-planning.md
+- .claude/skills/trellis-spec-bootstarp/references/spec-writing.md
+- .claude/skills/trellis-spec-bootstarp/SKILL.md
+- .opencode/skills/trellis-spec-bootstarp/references/mcp-setup.md
+- .opencode/skills/trellis-spec-bootstarp/references/repository-analysis.md
+- .opencode/skills/trellis-spec-bootstarp/references/spec-task-planning.md
+- .opencode/skills/trellis-spec-bootstarp/references/spec-writing.md
+- .opencode/skills/trellis-spec-bootstarp/SKILL.md
+- .agents/skills/trellis-spec-bootstarp/references/mcp-setup.md
+- .agents/skills/trellis-spec-bootstarp/references/repository-analysis.md
+- .agents/skills/trellis-spec-bootstarp/references/spec-task-planning.md
+- .agents/skills/trellis-spec-bootstarp/references/spec-writing.md
+- .agents/skills/trellis-spec-bootstarp/SKILL.md
+
+## Kept (no longer managed)
+- .agents/skills/trellis-finish-work/SKILL.md
+- AGENTS.md
+- .claude/commands/trellis/finish-work.md
+- .opencode/commands/trellis/finish-work.md
+
+## Needs review
+Local edits were preserved as `<path>.pre-adopt` where a generated path conflicted.
+- .agents/skills/trellis-finish-work/SKILL.md
+- AGENTS.md
+- .claude/commands/trellis/finish-work.md
+- .opencode/commands/trellis/finish-work.md
+
+## Warnings
+- none
