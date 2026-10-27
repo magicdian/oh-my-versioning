@@ -7,6 +7,7 @@
 - Check target drift without mutation with `omv sync --check --json`.
 - Inspect host integration provider/capability status with `omv integrate status --json` when that command is available.
 - Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.
+- Treat `.trellis` and `.phronia` as mutually exclusive OMV projection targets. When both host trees exist, resolve the conflict (remove or rename one framework) before running `omv integrate apply` or `omv adapter refresh`; OMV does not choose, rewrite records, or delete framework files automatically.
 - Change the managed version with `omv bump --json`.
 - At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.
 - After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together.

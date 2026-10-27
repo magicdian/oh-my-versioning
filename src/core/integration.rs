@@ -2,6 +2,39 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+/// Host roots owned by spec/workflow frameworks that install competing
+/// finish-work entrypoints. OMV must not project into both at once.
+pub const SPEC_WORKFLOW_HOST_ROOTS: [(&str, IntegrationProvider); 2] = [
+    (".trellis", IntegrationProvider::Trellis),
+    (".phronia", IntegrationProvider::Phronia),
+];
+
+/// Return the spec/workflow host roots detected under `project_root` when more
+/// than one is present.
+///
+/// OMV deliberately does not pick a winner, rewrite adapter records, or delete
+/// framework files. The caller surfaces this as an actionable conflict so the
+/// user decides which framework to keep.
+pub fn detect_spec_framework_conflict(project_root: &Path) -> Option<Vec<&'static str>> {
+    let detected: Vec<&'static str> = SPEC_WORKFLOW_HOST_ROOTS
+        .iter()
+        .filter(|(root, _)| project_root.join(root).exists())
+        .map(|(root, _)| *root)
+        .collect();
+    if detected.len() > 1 {
+        Some(detected)
+    } else {
+        None
+    }
+}
+
+pub fn spec_framework_conflict_message(hosts: &[&str]) -> String {
+    format!(
+        "OMV detected multiple spec/workflow frameworks ({}). OMV will not choose between them, rewrite adapter records, or delete either framework. Remove or rename the framework host you do not want OMV to manage so exactly one remains, then rerun. If an old adapter record points at the removed framework, remove that record from `.omv/adapters.toml` first.",
+        hosts.join(", ")
+    )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum IntegrationProvider {
@@ -369,6 +402,29 @@ mod tests {
         assert!(is_trellis_v05_or_later("0.5.0"));
         assert!(is_trellis_v05_or_later("0.6.1"));
         assert!(is_trellis_v05_or_later("1.0.0"));
+    }
+
+    #[test]
+    fn detects_spec_framework_conflict_only_when_multiple_hosts_exist() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("omv-framework-conflict-{stamp}"));
+        std::fs::create_dir_all(root.join(".trellis")).expect("create .trellis");
+
+        assert_eq!(detect_spec_framework_conflict(&root), None);
+
+        std::fs::create_dir_all(root.join(".phronia")).expect("create .phronia");
+        assert_eq!(
+            detect_spec_framework_conflict(&root),
+            Some(vec![".trellis", ".phronia"])
+        );
+
+        std::fs::remove_dir_all(root.join(".trellis")).expect("remove .trellis");
+        assert_eq!(detect_spec_framework_conflict(&root), None);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

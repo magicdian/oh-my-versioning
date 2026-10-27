@@ -281,6 +281,26 @@ Codex can bootstrap lightweight instruction host files. Trellis and future
 framework-style providers require an existing host installation before OMV
 mutates framework files.
 
+Spec/workflow frameworks own competing finish-work entrypoints, so `.trellis`
+and `.phronia` are mutually exclusive OMV projection targets. When both host
+trees exist:
+
+- `omv integrate status` reports `spec-framework-conflict` on both providers'
+  capabilities instead of choosing a winner;
+- `omv integrate apply`, `omv adapter install --spec <trellis|phronia>`, and
+  `omv adapter refresh` fail with an actionable message;
+- OMV never deletes framework files or silently rewrites adapter records. The
+  user removes or renames the framework they do not want, then reruns.
+
+A Trellis/Phronia adapter record whose own host directory is missing is treated
+as stale and is not refreshed: OMV will not recreate `.trellis` or `.phronia`.
+Remove the stale record from `.omv/adapters.toml` (or restore the framework)
+before refreshing.
+
+Sync drift comparison normalizes CRLF/LF: a line-ending-only difference is not
+drift. When OMV does write a generated target, it writes LF regardless of host
+platform.
+
 ### Adapter Compatibility Transition
 
 `omv integrate status` and `omv integrate apply` are the forward commands for

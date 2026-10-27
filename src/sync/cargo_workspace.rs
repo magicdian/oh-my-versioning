@@ -8,7 +8,7 @@ use crate::core::target::{CargoLockfileStrategy, CargoVersionLocation, TargetKin
 use crate::errors::{OmvError, TargetError};
 use crate::sync::{
     PlanOperation, PlanStatus, PlanTargetResult, V2SyncContext, V2TargetSyncAdapter, planned_write,
-    project_relative_path, read_text_if_exists, resolve_target_path,
+    project_relative_path, read_text_if_exists, resolve_target_path, text_matches,
 };
 
 #[derive(Debug, Default)]
@@ -78,7 +78,7 @@ impl V2TargetSyncAdapter for CargoWorkspaceAdapter {
                     context.target.id.as_str(),
                 )?;
                 current_summaries.push(format!("workspace.package={current}"));
-                if updated != workspace_manifest {
+                if !text_matches(&updated, &workspace_manifest) {
                     drift = true;
                 }
                 operations.push(planned_write(
@@ -98,7 +98,7 @@ impl V2TargetSyncAdapter for CargoWorkspaceAdapter {
                         member.path.as_path(),
                     )?;
                     current_summaries.push(format!("{}={current}", member.name));
-                    if updated != member.content {
+                    if !text_matches(&updated, &member.content) {
                         drift = true;
                     }
                     operations.push(planned_write(

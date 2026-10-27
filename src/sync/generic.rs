@@ -5,7 +5,7 @@ use crate::core::target::TargetKind;
 use crate::errors::{OmvError, TargetError};
 use crate::sync::{
     PlanOperation, PlanStatus, PlanTargetResult, V2SyncContext, V2TargetSyncAdapter, planned_write,
-    project_relative_path, read_text_if_exists, resolve_target_path,
+    project_relative_path, read_text_if_exists, resolve_target_path, text_matches,
 };
 
 #[derive(Debug, Default)]
@@ -111,7 +111,7 @@ impl V2TargetSyncAdapter for RegexReplaceAdapter {
                 .replace(current.as_str(), replacement.as_str())
                 .into_owned()
         };
-        let status = if expected == current {
+        let status = if text_matches(&expected, &current) {
             PlanStatus::Ok
         } else {
             PlanStatus::Drift
@@ -163,7 +163,7 @@ impl V2TargetSyncAdapter for MarkdownManagedBlockAdapter {
             expected_block.as_str(),
             context.target.id.as_str(),
         )?;
-        let status = if expected == current {
+        let status = if text_matches(&expected, &current) {
             PlanStatus::Ok
         } else {
             PlanStatus::Drift
@@ -213,7 +213,7 @@ impl V2TargetSyncAdapter for YamlScalarAdapter {
             context.version,
             context.target.id.as_str(),
         )?;
-        let status = if expected == current {
+        let status = if text_matches(&expected, &current) {
             PlanStatus::Ok
         } else {
             PlanStatus::Drift
@@ -263,7 +263,7 @@ impl V2TargetSyncAdapter for CHeaderMacroAdapter {
             render_template(config.template.as_str(), context.version).as_str(),
             context.target.id.as_str(),
         )?;
-        let status = if expected == current {
+        let status = if text_matches(&expected, &current) {
             PlanStatus::Ok
         } else {
             PlanStatus::Drift

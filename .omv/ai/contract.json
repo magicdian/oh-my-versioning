@@ -195,7 +195,9 @@
     ],
     "host_adapter_files_are_derived_outputs": true,
     "native_manifests_are_derived_outputs": true,
-    "runtime_exports_are_read_only_views": true
+    "runtime_exports_are_read_only_views": true,
+    "spec_workflow_hosts_are_mutually_exclusive": true,
+    "sync_comparison_normalizes_line_endings": true
   },
   "truth_source": ".omv/state.toml"
 }

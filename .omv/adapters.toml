@@ -63,3 +63,23 @@ mode = "materialize"
 path = ".phronia/spec/guides/index.md"
 source_path = ".omv/ai/adapters/phronia/index-snippet.md"
 mode = "managed-block"
+
+[[installations.targets]]
+path = ".agents/skills/phronia-finish-work/SKILL.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".claude/commands/phronia/finish-work.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".opencode/commands/phronia/finish-work.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
+
+[[installations.targets]]
+path = ".zcode/commands/phronia/finish-work.md"
+source_path = ".omv/ai/contract.json"
+mode = "managed-block"
