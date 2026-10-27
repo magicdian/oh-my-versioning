@@ -8,7 +8,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py --event session-start --platform zcode\"",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event session-start --platform zcode",
               "timeout": 30
             }
           ]
@@ -19,7 +19,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py --event user-prompt --platform zcode\"",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event user-prompt --platform zcode",
               "timeout": 15
             }
           ]
@@ -31,7 +31,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py --event subagent-spawn --platform zcode\"",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event subagent-spawn --platform zcode",
               "timeout": 30
             }
           ]
@@ -41,7 +41,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py --event pre-shell --platform zcode\"",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event pre-shell --platform zcode",
               "timeout": 5
             }
           ]
