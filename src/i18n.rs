@@ -81,7 +81,7 @@ impl Catalog {
     pub fn tf(&self, key: &str, vars: &[&str]) -> String {
         let mut text = self.t(key);
 
-        for chunk in vars.chunks_exact(2) {
+        for chunk in vars.as_chunks::<2>().0 {
             let token = format!("{{{}}}", chunk[0]);
             text = text.replace(&token, chunk[1]);
         }
