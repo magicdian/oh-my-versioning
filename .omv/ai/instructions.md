@@ -14,6 +14,6 @@
 - Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.
 - Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.
 - Treat runtime export files such as `src/generated/version.rs` and `include/omv_version.h` as generated read-only views.
-- Treat host files such as `AGENTS.md`, `CLAUDE.md`, `.codex/skills/*`, and Trellis/OpenSpec guides as derived projections, not OMV authority.
+- Treat host files such as `AGENTS.md`, `CLAUDE.md`, `.codex/skills/*`, and Trellis/Phronia/OpenSpec guides as derived projections, not OMV authority.
 
 When integrating OMV with agents or spec frameworks, keep the detailed rules in `.omv/ai/*` and project only thin host adapters into external files. Legacy `omv adapter ...` commands remain temporary compatibility commands during the MVP transition; new automation should prefer `omv integrate status/apply` where available.

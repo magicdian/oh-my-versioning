@@ -2,6 +2,16 @@
 
 Wrap up the current session: archive the active task (and any other completed-but-unarchived tasks the user wants to clean up) and record the session journal. Code commits are NOT done here — those happen in workflow Phase 3.4 before you invoke this command.
 
+<!-- OMV-MANAGED-BEGIN:spec-phronia-finalize-boundary-finish-work -->
+## OMV Finalize Boundary (Verify — run BEFORE archive)
+
+For Phronia, the OMV version bump already happened at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`). Do NOT bump again here. These steps only verify the commit-boundary bump landed.
+
+- [ ] Do NOT run `omv event finalize-boundary` in finish-work; the unit of work was already finalized at the commit boundary.
+- [ ] Run `omv sync --check --json`. Treat any required target drift as blocking: drift here means the commit-boundary bump was not synced/committed — surface it and resolve before archiving.
+- [ ] If `Cargo.lock` / other lock files or generated version files are uncommitted (e.g. the build step was skipped after the commit-boundary bump), run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) and commit them before archiving.
+<!-- OMV-MANAGED-END:spec-phronia-finalize-boundary-finish-work -->
+
 ## Step 1: Survey current state
 
 ```bash

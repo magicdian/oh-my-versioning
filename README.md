@@ -127,7 +127,7 @@ Adapter categories:
 First-wave supported adapters:
 
 - agent: `codex`, `opencode`, `claude`
-- spec: `openspec`, `trellis`
+- spec: `openspec`, `trellis`, `phronia`
 
 Example:
 
@@ -150,8 +150,9 @@ The reference flow is:
 3. Advance version truth via `omv bump --json`
 4. Let OMV sync manifests and runtime exports
 
-Host files such as `AGENTS.md`, `CLAUDE.md`, `openspec/project.md`, or Trellis
-guide indexes are projections of `.omv/ai/*`, not independent truth sources.
+Host files such as `AGENTS.md`, `CLAUDE.md`, `openspec/project.md`, or
+Trellis/Phronia guide indexes are projections of `.omv/ai/*`, not independent
+truth sources.
 
 ## Version Model
 

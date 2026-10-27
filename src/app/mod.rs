@@ -168,6 +168,19 @@ const TRELLIS_FINISH_WORK_BACKUP_PATHS: [&str; 2] = [
 const CLAUDE_FINISH_WORK_PATH: &str = ".claude/commands/trellis/finish-work.md";
 const OPENCODE_FINISH_WORK_PATH: &str = ".opencode/commands/trellis/finish-work.md";
 
+/// Phronia finish-work surfaces. Phronia installs one surface per platform, so
+/// the finalize-boundary block is injected into whichever of these exist.
+const PHRONIA_FINISH_WORK_SKILL_PATH: &str = ".agents/skills/phronia-finish-work/SKILL.md";
+const PHRONIA_CLAUDE_FINISH_WORK_PATH: &str = ".claude/commands/phronia/finish-work.md";
+const PHRONIA_OPENCODE_FINISH_WORK_PATH: &str = ".opencode/commands/phronia/finish-work.md";
+const PHRONIA_ZCODE_FINISH_WORK_PATH: &str = ".zcode/commands/phronia/finish-work.md";
+const PHRONIA_FINISH_WORK_PATHS: [&str; 4] = [
+    PHRONIA_FINISH_WORK_SKILL_PATH,
+    PHRONIA_CLAUDE_FINISH_WORK_PATH,
+    PHRONIA_OPENCODE_FINISH_WORK_PATH,
+    PHRONIA_ZCODE_FINISH_WORK_PATH,
+];
+
 /// Agent providers whose own Trellis finish-work entrypoint should carry the
 /// OMV finalize-boundary managed block when the agent is selected.
 const FINALIZE_BOUNDARY_AGENT_PROVIDERS: [IntegrationProvider; 3] = [
@@ -245,6 +258,7 @@ enum IntegrationTargetBehavior {
     DedicatedFile,
     ManagedBlockOnly,
     TrellisFinalizeBoundary,
+    PhroniaFinalizeBoundary,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1063,13 +1077,11 @@ fn apply_integration_capability(
         );
     };
 
-    if provider == IntegrationProvider::Trellis
-        && !detect_integration_provider(project_root, provider).detected
-    {
+    if !detect_required_spec_provider(project_root, provider) {
         return failed_integration_result(
             plan,
             "provider-not-detected",
-            "trellis integration requires an existing .trellis installation",
+            provider_not_detected_message(provider),
         );
     }
 
@@ -1077,6 +1089,12 @@ fn apply_integration_capability(
         && capability == IntegrationCapability::FinalizeBoundary
     {
         return apply_trellis_finalize_boundary(omv_root, project_root, plan, selected_agents);
+    }
+
+    if provider == IntegrationProvider::Phronia
+        && capability == IntegrationCapability::FinalizeBoundary
+    {
+        return apply_phronia_finalize_boundary(omv_root, project_root, plan);
     }
 
     let Some(target) = integration_target(provider, capability) else {
@@ -1188,6 +1206,78 @@ fn apply_trellis_finalize_boundary(
         },
         failure: None,
     }
+}
+
+/// Apply the OMV finalize-boundary managed block to every Phronia finish-work
+/// surface that exists on disk.
+///
+/// Phronia installs one finish-work surface per platform (`/phronia:finish-work`
+/// commands plus the generic skill). OMV does not know which selected agent
+/// provider owns each file, so it injects into all existing Phronia surfaces —
+/// this also covers platforms OMV does not model as agent providers (e.g.
+/// ZCode). The capability succeeds only when at least one surface was injected
+/// and every existing surface carries the block.
+fn apply_phronia_finalize_boundary(
+    omv_root: &Path,
+    project_root: &Path,
+    plan: &IntegrationCapabilityPlan,
+) -> IntegrationApplyCapabilityResult {
+    let surfaces = resolve_existing_phronia_finish_work_paths(project_root);
+    if surfaces.is_empty() {
+        let message = format!(
+            "no Phronia finish-work surface found; expected one of {}. Run Phronia init/update, then rerun `omv integrate apply`.",
+            PHRONIA_FINISH_WORK_PATHS.join(", ")
+        );
+        return failed_integration_result(plan, "finish-work-surface-missing", message.as_str());
+    }
+
+    let mut installed_paths: Vec<String> = Vec::new();
+    for host_rel in surfaces {
+        let target = IntegrationTarget {
+            source_rel: "contract.json",
+            host_rel,
+            behavior: IntegrationTargetBehavior::PhroniaFinalizeBoundary,
+        };
+
+        if let Err(err) = check_integration_target_safety(project_root, &target) {
+            let message = err.to_string();
+            return failed_integration_result(plan, "unsafe-worktree", message.as_str());
+        }
+
+        match install_integration_target(omv_root, project_root, &target, plan) {
+            Ok(mode) => {
+                if let Err(err) = record_adapter_target(omv_root, &target, plan, mode) {
+                    let message = err.to_string();
+                    return failed_integration_result(
+                        plan,
+                        "registry-write-failed",
+                        message.as_str(),
+                    );
+                }
+                installed_paths.push(host_rel.to_owned());
+            }
+            Err(err) => {
+                let message = err.to_string();
+                return failed_integration_result(plan, "install-failed", message.as_str());
+            }
+        }
+    }
+
+    IntegrationApplyCapabilityResult {
+        provider: plan.provider.clone(),
+        capability: plan.capability.clone(),
+        status: String::from("installed"),
+        target_paths: installed_paths,
+        failure: None,
+    }
+}
+
+fn resolve_existing_phronia_finish_work_paths(project_root: &Path) -> Vec<&'static str> {
+    PHRONIA_FINISH_WORK_PATHS
+        .iter()
+        .copied()
+        .filter(|host_rel| project_root.join(host_rel).exists())
+        .collect()
 }
 
 fn failed_integration_result(
@@ -1469,6 +1559,19 @@ fn detect_integration_provider(
                 evidence,
             }
         }
+        IntegrationProvider::Phronia => {
+            let mut evidence = Vec::new();
+            if project_root.join(".phronia").exists() {
+                evidence.push(String::from(".phronia"));
+            }
+            if project_root.join(".phronia/spec/guides/index.md").exists() {
+                evidence.push(String::from(".phronia/spec/guides/index.md"));
+            }
+            IntegrationProviderDetection {
+                detected: !evidence.is_empty(),
+                evidence,
+            }
+        }
         IntegrationProvider::OpenCode => {
             let mut evidence = Vec::new();
             if project_root.join(".opencode").exists() {
@@ -1482,6 +1585,31 @@ fn detect_integration_provider(
                 evidence,
             }
         }
+    }
+}
+
+/// Framework providers require an existing host installation before OMV may
+/// write projections into it. Agent hosts may bootstrap lightweight files.
+fn detect_required_spec_provider(project_root: &Path, provider: IntegrationProvider) -> bool {
+    match provider {
+        IntegrationProvider::Trellis | IntegrationProvider::Phronia => {
+            detect_integration_provider(project_root, provider).detected
+        }
+        IntegrationProvider::Claude
+        | IntegrationProvider::Codex
+        | IntegrationProvider::OpenCode => true,
+    }
+}
+
+fn provider_not_detected_message(provider: IntegrationProvider) -> &'static str {
+    match provider {
+        IntegrationProvider::Trellis => {
+            "trellis integration requires an existing .trellis installation"
+        }
+        IntegrationProvider::Phronia => {
+            "phronia integration requires an existing .phronia installation"
+        }
+        _ => "integration provider is not detected",
     }
 }
 
@@ -1549,6 +1677,27 @@ fn integration_target(
                 source_rel: "contract.json",
                 host_rel: TRELLIS_FINISH_WORK_V05_PATH,
                 behavior: IntegrationTargetBehavior::TrellisFinalizeBoundary,
+            })
+        }
+        (IntegrationProvider::Phronia, IntegrationCapability::SpecGuide) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/phronia/guide.md",
+                host_rel: ".phronia/spec/guides/omv-versioning-guide.md",
+                behavior: IntegrationTargetBehavior::DedicatedFile,
+            })
+        }
+        (IntegrationProvider::Phronia, IntegrationCapability::SpecIndexSnippet) => {
+            Some(IntegrationTarget {
+                source_rel: "adapters/phronia/index-snippet.md",
+                host_rel: ".phronia/spec/guides/index.md",
+                behavior: IntegrationTargetBehavior::ManagedBlockOnly,
+            })
+        }
+        (IntegrationProvider::Phronia, IntegrationCapability::FinalizeBoundary) => {
+            Some(IntegrationTarget {
+                source_rel: "contract.json",
+                host_rel: PHRONIA_FINISH_WORK_SKILL_PATH,
+                behavior: IntegrationTargetBehavior::PhroniaFinalizeBoundary,
             })
         }
         _ => None,
@@ -1642,7 +1791,7 @@ fn resolve_finalize_boundary_entrypoints(
                     .then_some(OPENCODE_FINISH_WORK_PATH),
                 IntegrationProvider::Codex => resolve_trellis_finish_work_path(project_root),
                 // Unreachable: only in-scope agents are passed in.
-                IntegrationProvider::Trellis => None,
+                IntegrationProvider::Trellis | IntegrationProvider::Phronia => None,
             };
             FinalizeBoundaryEntrypoint { provider, host_rel }
         })
@@ -1665,6 +1814,9 @@ fn probe_integration_capability(
         let selected_agents = selected_finalize_boundary_agents(state);
         return probe_trellis_finalize_boundary(project_root, &selected_agents);
     }
+    if target.behavior == IntegrationTargetBehavior::PhroniaFinalizeBoundary {
+        return probe_phronia_finalize_boundary(project_root);
+    }
 
     let host_path = project_root.join(target.host_rel);
     let Ok(content) = fs::read_to_string(host_path) else {
@@ -1677,6 +1829,51 @@ fn probe_integration_capability(
         installed: is_omv_managed_integration_content(&content),
         failure: None,
     }
+}
+
+fn probe_phronia_finalize_boundary(project_root: &Path) -> IntegrationCapabilityProbe {
+    let surfaces = resolve_existing_phronia_finish_work_paths(project_root);
+    if surfaces.is_empty() {
+        return IntegrationCapabilityProbe {
+            installed: false,
+            failure: Some(IntegrationFailure {
+                reason_code: String::from("phronia-finish-work-surface-missing"),
+                display_message: format!(
+                    "No Phronia finish-work surface found; expected one of {}. Run Phronia init/update, then run `omv integrate apply`.",
+                    PHRONIA_FINISH_WORK_PATHS.join(", ")
+                ),
+            }),
+        };
+    }
+
+    let offending: Vec<&str> = surfaces
+        .iter()
+        .copied()
+        .filter(|host_rel| !file_contains_phronia_finalize_block(&project_root.join(host_rel)))
+        .collect();
+    if offending.is_empty() {
+        return IntegrationCapabilityProbe {
+            installed: true,
+            failure: None,
+        };
+    }
+
+    IntegrationCapabilityProbe {
+        installed: false,
+        failure: Some(IntegrationFailure {
+            reason_code: String::from("phronia-finish-work-block-missing"),
+            display_message: format!(
+                "The OMV finalize-boundary block is missing from {}. Run `omv integrate apply` to refresh the Phronia finish-work surface(s).",
+                offending.join(", ")
+            ),
+        }),
+    }
+}
+
+fn file_contains_phronia_finalize_block(path: &Path) -> bool {
+    fs::read_to_string(path)
+        .map(|content| content.contains(adapter::PHRONIA_FINISH_WORK_BLOCK_NAME))
+        .unwrap_or(false)
 }
 
 /// Aggregate finalize-boundary status across every selected in-scope agent's
@@ -1739,6 +1936,7 @@ fn missing_finalize_boundary_surface(provider: IntegrationProvider) -> String {
         IntegrationProvider::OpenCode => OPENCODE_FINISH_WORK_PATH.to_owned(),
         IntegrationProvider::Codex => TRELLIS_FINISH_WORK_PATHS.join(" or "),
         IntegrationProvider::Trellis => String::new(),
+        IntegrationProvider::Phronia => PHRONIA_FINISH_WORK_PATHS.join(" or "),
     }
 }
 
@@ -1830,7 +2028,8 @@ fn check_integration_target_safety(
         }
         IntegrationTargetBehavior::FullFileOrManagedBlock
         | IntegrationTargetBehavior::ManagedBlockOnly
-        | IntegrationTargetBehavior::TrellisFinalizeBoundary => Ok(()),
+        | IntegrationTargetBehavior::TrellisFinalizeBoundary
+        | IntegrationTargetBehavior::PhroniaFinalizeBoundary => Ok(()),
     }
 }
 
@@ -1859,6 +2058,21 @@ fn install_integration_target(
                 .unwrap_or(false);
             let content =
                 adapter::upsert_trellis_finish_work_finalize_block(&existing, is_v05_or_later);
+            storage::atomic::write_atomically(&host_path, content.as_bytes())?;
+            Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
+        }
+        IntegrationTargetBehavior::PhroniaFinalizeBoundary => {
+            if !host_path.exists() {
+                return Err(AdapterError::Unsupported {
+                    reason: format!(
+                        "no Phronia finish-work surface found; expected one of {}. Run Phronia init/update, then rerun `omv integrate apply`.",
+                        PHRONIA_FINISH_WORK_PATHS.join(", ")
+                    ),
+                }
+                .into());
+            }
+            let existing = fs::read_to_string(&host_path)?;
+            let content = adapter::upsert_phronia_finish_work_finalize_block(&existing);
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;
             Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
         }
@@ -2390,30 +2604,133 @@ fn resolve_finalize_boundary_task_id(
         return Ok(task_id.to_owned());
     }
 
-    let current_task_path = project_root.join(".trellis/.current-task");
-    let current_task_ref = fs::read_to_string(&current_task_path)
-        .map_err(|_| FinalizationError::MissingField(String::from("task_id")))?
-        .trim()
-        .to_owned();
-    if current_task_ref.is_empty() {
-        return Err(FinalizationError::MissingField(String::from("task_id")).into());
+    if let Some(task_id) = resolve_trellis_current_task_id(project_root) {
+        return Ok(task_id);
+    }
+    if let Some(task_id) = resolve_phronia_current_task_id(project_root) {
+        return Ok(task_id);
     }
 
-    let task_dir = resolve_trellis_task_ref(project_root, &current_task_ref);
-    let task_json_path = task_dir.join("task.json");
-    if let Ok(content) = fs::read_to_string(&task_json_path)
+    Err(FinalizationError::MissingField(String::from("task_id")).into())
+}
+
+fn resolve_trellis_current_task_id(project_root: &Path) -> Option<String> {
+    let current_task_ref = fs::read_to_string(project_root.join(".trellis/.current-task")).ok()?;
+    task_dir_id(&resolve_trellis_task_ref(project_root, &current_task_ref))
+}
+
+/// Resolve the Phronia task id without requiring the caller to know Phronia's
+/// session identity.
+///
+/// Sources, in order:
+/// 1. an explicit `.phronia/.current-task` marker, when the project keeps one;
+/// 2. session runtime pointers under `.phronia/.runtime/sessions/*.json` — only
+///    when every session that has a pointer agrees on the same task;
+/// 3. exactly one task whose `status` is `in_progress` or `review`.
+///
+/// Ambiguous state returns `None` rather than guessing between windows.
+fn resolve_phronia_current_task_id(project_root: &Path) -> Option<String> {
+    if let Ok(current_task_ref) = fs::read_to_string(project_root.join(".phronia/.current-task"))
+        && let Some(task_id) =
+            task_dir_id(&resolve_phronia_task_ref(project_root, &current_task_ref))
+    {
+        return Some(task_id);
+    }
+
+    if let Some(task_ref) = single_phronia_session_task_ref(project_root) {
+        return task_dir_id(&resolve_phronia_task_ref(project_root, &task_ref));
+    }
+
+    single_phronia_active_task(project_root)
+}
+
+fn single_phronia_session_task_ref(project_root: &Path) -> Option<String> {
+    let sessions_dir = project_root.join(".phronia/.runtime/sessions");
+    let mut refs = BTreeSet::new();
+    for entry in fs::read_dir(sessions_dir).ok()? {
+        let entry = entry.ok()?;
+        if entry.path().extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        if let Some(task_ref) = value.get("current_task").and_then(|value| value.as_str())
+            && !task_ref.trim().is_empty()
+        {
+            refs.insert(task_ref.trim().to_owned());
+        }
+    }
+
+    if refs.len() == 1 {
+        refs.into_iter().next()
+    } else {
+        None
+    }
+}
+
+fn single_phronia_active_task(project_root: &Path) -> Option<String> {
+    let tasks_dir = project_root.join(".phronia/tasks");
+    let mut matches = Vec::new();
+    for entry in fs::read_dir(tasks_dir).ok()? {
+        let entry = entry.ok()?;
+        if !entry.file_type().ok()?.is_dir() {
+            continue;
+        }
+        let task_dir = entry.path();
+        let Ok(content) = fs::read_to_string(task_dir.join("task.json")) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let status = value
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if matches!(status, "in_progress" | "review") {
+            matches.push(task_dir);
+        }
+    }
+
+    if matches.len() == 1 {
+        task_dir_id(&matches[0])
+    } else {
+        None
+    }
+}
+
+fn task_dir_id(task_dir: &Path) -> Option<String> {
+    if let Ok(content) = fs::read_to_string(task_dir.join("task.json"))
         && let Ok(value) = serde_json::from_str::<serde_json::Value>(&content)
         && let Some(id) = value.get("id").and_then(|id| id.as_str())
         && !id.trim().is_empty()
     {
-        return Ok(id.trim().to_owned());
+        return Some(id.trim().to_owned());
     }
 
     task_dir
         .file_name()
         .and_then(|name| name.to_str())
         .map(str::to_owned)
-        .ok_or_else(|| FinalizationError::MissingField(String::from("task_id")).into())
+}
+
+fn resolve_phronia_task_ref(project_root: &Path, task_ref: &str) -> PathBuf {
+    let normalized = task_ref.trim().trim_start_matches("./").replace('\\', "/");
+    let path = PathBuf::from(&normalized);
+    if path.is_absolute() {
+        return path;
+    }
+    if normalized.starts_with(".phronia/") {
+        return project_root.join(path);
+    }
+    if normalized.starts_with("tasks/") {
+        return project_root.join(".phronia").join(path);
+    }
+    project_root.join(".phronia/tasks").join(path)
 }
 
 fn resolve_trellis_task_ref(project_root: &Path, task_ref: &str) -> PathBuf {
@@ -3674,6 +3991,53 @@ mod tests {
         assert_eq!(explicit, "override-task");
 
         cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn finalize_boundary_resolves_phronia_current_task() {
+        let root = temp_project_root("boundary-phronia-task-resolution");
+
+        // A single in-progress Phronia task is enough when no session pointer
+        // is available in the OMV process.
+        write_phronia_task(
+            &root,
+            "10-27-phronia-compat",
+            "phronia-compat",
+            "in_progress",
+        );
+        let resolved =
+            resolve_finalize_boundary_task_id(&root, None).expect("phronia task should resolve");
+        assert_eq!(resolved, "phronia-compat");
+
+        // A session pointer wins over the single-task fallback.
+        write_phronia_task(&root, "10-27-other-task", "other-task", "in_progress");
+        fs::create_dir_all(root.join(".phronia/.runtime/sessions"))
+            .expect("sessions dir should exist");
+        fs::write(
+            root.join(".phronia/.runtime/sessions/claude_abc.json"),
+            r#"{"current_task":".phronia/tasks/10-27-phronia-compat"}"#,
+        )
+        .expect("session pointer should write");
+        let from_session =
+            resolve_finalize_boundary_task_id(&root, None).expect("session pointer should resolve");
+        assert_eq!(from_session, "phronia-compat");
+
+        // Ambiguous active tasks without a pointer must not guess.
+        fs::remove_file(root.join(".phronia/.runtime/sessions/claude_abc.json"))
+            .expect("session pointer should remove");
+        assert!(resolve_finalize_boundary_task_id(&root, None).is_err());
+
+        cleanup_project_root(&root);
+    }
+
+    fn write_phronia_task(root: &std::path::Path, dir_name: &str, id: &str, status: &str) {
+        let task_dir = root.join(".phronia/tasks").join(dir_name);
+        fs::create_dir_all(&task_dir).expect("task dir should exist");
+        fs::write(
+            task_dir.join("task.json"),
+            format!(r#"{{"id":"{id}","title":"Example","status":"{status}"}}"#),
+        )
+        .expect("task json should write");
     }
 
     #[test]

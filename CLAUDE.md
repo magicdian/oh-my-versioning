@@ -1,5 +1,4 @@
 <!-- OMV-MANAGED-FILE source=.omv/ai/adapters/claude/CLAUDE.md contract=1 -->
-<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/claude/CLAUDE.md contract=1 -->
 # OMV Claude Adapter
 
 @./.omv/ai/instructions.md

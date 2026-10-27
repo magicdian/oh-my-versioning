@@ -2,7 +2,6 @@
 name: omv-versioning
 description: "Use OMV as the version source of truth for this project."
 ---
-<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/SKILL.md contract=1 -->
 
 <!-- OMV-MANAGED-FILE source=.omv/ai/adapters/codex/SKILL.md contract=1 -->
 

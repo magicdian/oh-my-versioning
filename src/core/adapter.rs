@@ -57,6 +57,7 @@ impl AgentAdapter {
 pub enum SpecAdapter {
     OpenSpec,
     Trellis,
+    Phronia,
 }
 
 impl SpecAdapter {
@@ -64,6 +65,7 @@ impl SpecAdapter {
         match self {
             Self::OpenSpec => "openspec",
             Self::Trellis => "trellis",
+            Self::Phronia => "phronia",
         }
     }
 
@@ -71,12 +73,17 @@ impl SpecAdapter {
         match value.trim() {
             "openspec" => Some(Self::OpenSpec),
             "trellis" => Some(Self::Trellis),
+            "phronia" => Some(Self::Phronia),
             _ => None,
         }
     }
 
     pub fn all() -> &'static [Self] {
-        const ALL: [SpecAdapter; 2] = [SpecAdapter::OpenSpec, SpecAdapter::Trellis];
+        const ALL: [SpecAdapter; 3] = [
+            SpecAdapter::OpenSpec,
+            SpecAdapter::Trellis,
+            SpecAdapter::Phronia,
+        ];
         &ALL
     }
 }

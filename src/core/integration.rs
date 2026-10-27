@@ -8,6 +8,7 @@ pub enum IntegrationProvider {
     Claude,
     Codex,
     Trellis,
+    Phronia,
     OpenCode,
 }
 
@@ -17,6 +18,7 @@ impl IntegrationProvider {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Trellis => "trellis",
+            Self::Phronia => "phronia",
             Self::OpenCode => "opencode",
         }
     }
@@ -26,6 +28,7 @@ impl IntegrationProvider {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "trellis" => Some(Self::Trellis),
+            "phronia" => Some(Self::Phronia),
             "opencode" => Some(Self::OpenCode),
             _ => None,
         }
@@ -266,6 +269,38 @@ pub fn mvp_provider_descriptors() -> Vec<IntegrationProviderDescriptor> {
                 },
             ],
         },
+        IntegrationProviderDescriptor {
+            provider: IntegrationProvider::Phronia,
+            kind: IntegrationProviderKind::SpecWorkflowHost,
+            bootstrap_policy: IntegrationBootstrapPolicy::RequireExistingHost,
+            capabilities: vec![
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::SpecGuide,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from(
+                        ".phronia/spec/guides/omv-versioning-guide.md",
+                    )],
+                },
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::SpecIndexSnippet,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![String::from(".phronia/spec/guides/index.md")],
+                },
+                IntegrationCapabilityDescriptor {
+                    capability: IntegrationCapability::FinalizeBoundary,
+                    default_selected: true,
+                    recommended: true,
+                    target_paths: vec![
+                        String::from(".agents/skills/phronia-finish-work/SKILL.md"),
+                        String::from(".claude/commands/phronia/finish-work.md"),
+                        String::from(".opencode/commands/phronia/finish-work.md"),
+                        String::from(".zcode/commands/phronia/finish-work.md"),
+                    ],
+                },
+            ],
+        },
     ]
 }
 
@@ -352,19 +387,19 @@ mod tests {
     }
 
     #[test]
-    fn detect_trellis_version_reads_current_project() {
-        // This test runs in the oh-my-versioning repo where .trellis/.version exists.
-        // Use CARGO_MANIFEST_DIR to reliably locate the project root.
-        let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let info = detect_trellis_version(project_root);
-        assert!(
-            info.is_some(),
-            "expected .trellis/.version in current repo at {}",
-            project_root.display()
-        );
-        let info = info.unwrap();
-        assert!(!info.version.is_empty());
-        // The current repo is at least v0.5.x.
+    fn detect_trellis_version_reads_version_file() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let project_root = std::env::temp_dir().join(format!("omv-trellis-version-{stamp}"));
+        std::fs::create_dir_all(project_root.join(".trellis")).expect("create .trellis");
+        std::fs::write(project_root.join(".trellis/.version"), "0.5.19\n").expect("write version");
+
+        let info = detect_trellis_version(&project_root).expect("version should be detected");
+        assert_eq!(info.version, "0.5.19");
         assert!(info.is_v05_or_later);
+
+        let _ = std::fs::remove_dir_all(&project_root);
     }
 }

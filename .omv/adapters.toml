@@ -50,31 +50,16 @@ mode = "materialize"
 
 [[installations]]
 kind = "spec"
-name = "trellis"
+name = "phronia"
 install_mode = "materialize"
 source_contract_version = 1
 
 [[installations.targets]]
-path = ".trellis/spec/guides/omv-versioning-guide.md"
-source_path = ".omv/ai/adapters/trellis/guide.md"
+path = ".phronia/spec/guides/omv-versioning-guide.md"
+source_path = ".omv/ai/adapters/phronia/guide.md"
 mode = "materialize"
 
 [[installations.targets]]
-path = ".trellis/spec/guides/index.md"
-source_path = ".omv/ai/adapters/trellis/index-snippet.md"
-mode = "managed-block"
-
-[[installations.targets]]
-path = ".claude/commands/trellis/finish-work.md"
-source_path = ".omv/ai/contract.json"
-mode = "managed-block"
-
-[[installations.targets]]
-path = ".opencode/commands/trellis/finish-work.md"
-source_path = ".omv/ai/contract.json"
-mode = "managed-block"
-
-[[installations.targets]]
-path = ".agents/skills/trellis-finish-work/SKILL.md"
-source_path = ".omv/ai/contract.json"
+path = ".phronia/spec/guides/index.md"
+source_path = ".omv/ai/adapters/phronia/index-snippet.md"
 mode = "managed-block"

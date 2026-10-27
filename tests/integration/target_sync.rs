@@ -960,6 +960,254 @@ fn integrate_apply_prefers_trellis_05_finish_work_surface() {
 }
 
 #[test]
+fn integrate_apply_rejects_selected_phronia_when_not_detected() {
+    let project_root = temp_project_root("integrate-apply-phronia-missing");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Phronia,
+                true,
+                false,
+                &[(
+                    IntegrationCapability::SpecGuide,
+                    true,
+                    IntegrationCapabilityStatus::Pending,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let err = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("phronia apply without .phronia should fail");
+
+        assert_eq!(err.code(), "integration_apply_failed");
+        let structured = app::render_structured_error("integrate.apply", &err);
+        assert!(structured.contains("provider-not-detected"));
+        assert!(structured.contains("\"provider\": \"phronia\""));
+    });
+
+    assert!(
+        !project_root
+            .join(".phronia/spec/guides/omv-versioning-guide.md")
+            .exists()
+    );
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_installs_phronia_spec_guide_and_index() {
+    let project_root = temp_project_root("integrate-apply-phronia-spec");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".phronia/spec/guides"))
+        .expect("phronia guides dir should be created");
+    fs::write(
+        project_root.join(".phronia/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("phronia index should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Phronia,
+                true,
+                true,
+                &[
+                    (
+                        IntegrationCapability::SpecGuide,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    ),
+                    (
+                        IntegrationCapability::SpecIndexSnippet,
+                        true,
+                        IntegrationCapabilityStatus::Pending,
+                    ),
+                ],
+            )],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("phronia spec projections should install");
+
+        assert!(output.message.contains("\"status\": \"installed\""));
+    });
+
+    let guide =
+        fs::read_to_string(project_root.join(".phronia/spec/guides/omv-versioning-guide.md"))
+            .expect("phronia guide should exist");
+    assert!(guide.contains("source=.omv/ai/adapters/phronia/guide.md"));
+    assert!(guide.contains("Phronia Phase 3.4 commit-confirmation boundary"));
+
+    let index = fs::read_to_string(project_root.join(".phronia/spec/guides/index.md"))
+        .expect("phronia index should exist");
+    assert!(index.contains("OMV-MANAGED-BEGIN:integration-phronia-spec-index-snippet"));
+    assert!(index.contains("omv-versioning-guide.md"));
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_installs_phronia_finalize_boundary_on_existing_surfaces() {
+    let project_root = temp_project_root("integrate-apply-phronia-finalize");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".phronia/spec/guides"))
+        .expect("phronia guides dir should be created");
+    fs::create_dir_all(project_root.join(".agents/skills/phronia-finish-work"))
+        .expect("phronia skill dir should be created");
+    fs::create_dir_all(project_root.join(".zcode/commands/phronia"))
+        .expect("phronia zcode command dir should be created");
+    fs::write(
+        project_root.join(".phronia/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("phronia index should write");
+    let skill_surface = "---\nname: phronia-finish-work\n---\n\n# Finish Work\n\nintro\n\n## Step 1: Survey current state\n\nbody\n";
+    fs::write(
+        project_root.join(".agents/skills/phronia-finish-work/SKILL.md"),
+        skill_surface,
+    )
+    .expect("phronia skill surface should write");
+    fs::write(
+        project_root.join(".zcode/commands/phronia/finish-work.md"),
+        "# Finish Work\n\nintro\n\n## Step 1: Survey current state\n\nbody\n",
+    )
+    .expect("phronia zcode surface should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Phronia,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::FinalizeBoundary,
+                    true,
+                    IntegrationCapabilityStatus::Pending,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("phronia finalize-boundary apply should succeed");
+
+        assert!(
+            output
+                .message
+                .contains("\"capability\": \"finalize-boundary\"")
+        );
+        assert!(output.message.contains("\"status\": \"installed\""));
+        assert!(
+            output
+                .message
+                .contains(".agents/skills/phronia-finish-work/SKILL.md")
+        );
+        assert!(
+            output
+                .message
+                .contains(".zcode/commands/phronia/finish-work.md")
+        );
+    });
+
+    for surface in [
+        ".agents/skills/phronia-finish-work/SKILL.md",
+        ".zcode/commands/phronia/finish-work.md",
+    ] {
+        let content = fs::read_to_string(project_root.join(surface))
+            .expect("phronia finish-work surface should exist");
+        assert!(
+            content.contains("OMV-MANAGED-BEGIN:spec-phronia-finalize-boundary-finish-work"),
+            "{surface} should carry the managed block"
+        );
+        // Phronia bumps at commit time; finish-work is verification-only.
+        assert!(!content.contains("omv event finalize-boundary --provider phronia"));
+        assert!(content.contains("Do NOT run `omv event finalize-boundary`"));
+        let block = content
+            .find("OMV Finalize Boundary")
+            .expect("finalize block should exist");
+        let step = content
+            .find("## Step 1: Survey current state")
+            .expect("step 1 should exist");
+        assert!(block < step, "{surface} block should precede Step 1");
+    }
+
+    // Idempotent: a second apply does not duplicate the block.
+    with_cwd(&project_root, || {
+        app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("second phronia finalize-boundary apply should succeed");
+    });
+    let skill =
+        fs::read_to_string(project_root.join(".agents/skills/phronia-finish-work/SKILL.md"))
+            .expect("skill should exist");
+    assert_eq!(
+        skill
+            .matches("OMV-MANAGED-BEGIN:spec-phronia-finalize-boundary-finish-work")
+            .count(),
+        1
+    );
+
+    let loaded = storage::integrations::load_integrations(&omv_root)
+        .expect("integrations should round-trip through storage");
+    let phronia = loaded
+        .providers
+        .iter()
+        .find(|provider| provider.provider == IntegrationProvider::Phronia)
+        .expect("phronia provider should persist");
+    let finalize = phronia
+        .capabilities
+        .iter()
+        .find(|capability| capability.capability == IntegrationCapability::FinalizeBoundary)
+        .expect("finalize-boundary should persist");
+    assert_eq!(finalize.status, IntegrationCapabilityStatus::Installed);
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
 fn integrate_status_warns_when_trellis_finalize_block_is_only_in_legacy_path() {
     let project_root = temp_project_root("integrate-status-finalize-boundary-mixed");
     let omv_root = project_root.join(".omv");

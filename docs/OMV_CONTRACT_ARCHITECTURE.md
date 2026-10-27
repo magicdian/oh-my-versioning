@@ -242,7 +242,7 @@ Kind-based implementation notes:
 Host integration is distinct from target synchronization and from legacy
 adapter projection. The forward product surface is provider/capability based:
 
-- providers are host frameworks such as `codex` or `trellis`
+- providers are host frameworks such as `codex`, `trellis`, or `phronia`
 - capabilities are medium-grained installable behaviors such as
   `project-instructions`, `host-skill`, `spec-guide`,
   `spec-index-snippet`, and `finalize-boundary`
@@ -259,6 +259,7 @@ MVP provider support is intentionally small:
 | --- | --- | --- |
 | `codex` | agent | supported; may bootstrap lightweight instruction files |
 | `trellis` | spec/workflow | supported; requires existing Trellis installation before mutation |
+| `phronia` | spec/workflow | supported; requires existing Phronia installation before mutation |
 | `claude` | agent | future; hidden from init UI in MVP |
 | `openspec` | spec | future; hidden from init UI in MVP |
 
@@ -333,6 +334,28 @@ otherwise it reports a repairable pending/mismatch naming the offending path(s).
 This is the one intentional cross-provider read (Trellis capability ← agent
 selection). When no in-scope agent is selected, OMV preserves the legacy
 codex-only `.agents/skills/...` behavior for backward compatibility.
+
+Phronia (a Trellis fork) also commits in workflow Phase 3.4 before
+`/phronia:finish-work`, so its block is verification-only. Phronia installs one
+finish-work surface per platform, and the `finalize-boundary` capability
+upserts the block into every existing surface:
+
+- `.agents/skills/phronia-finish-work/SKILL.md`
+- `.claude/commands/phronia/finish-work.md`
+- `.opencode/commands/phronia/finish-work.md`
+- `.zcode/commands/phronia/finish-work.md`
+
+Unlike Trellis, this target set does not depend on selected agent providers:
+those files are owned by the Phronia installation, and scanning every existing
+surface also covers platforms OMV does not model as agent providers (for
+example ZCode). At least one surface must exist; otherwise `omv integrate apply`
+reports `finish-work-surface-missing`.
+
+`finalize-boundary` task identity defaults to `.trellis/.current-task` for
+Trellis. For Phronia it uses `.phronia/.current-task` when present, otherwise a
+single agreeing `.phronia/.runtime/sessions/*.json` pointer, otherwise the only
+task whose status is `in_progress` or `review`. Ambiguous state is an error
+rather than a guess; an explicit `--task-id` always wins.
 
 Trellis finish-work path compatibility for the codex surface is capability-based,
 not version-string based. OMV prefers `.agents/skills/trellis-finish-work/SKILL.md`
