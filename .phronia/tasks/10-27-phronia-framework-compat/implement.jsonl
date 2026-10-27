@@ -1,0 +1,4 @@
+{"file": ".phronia/workflow.md", "reason": "Project workflow and commit/release conventions"}
+{"file": ".phronia/spec/backend/index.md", "reason": "Backend development and validation guide"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Provider/capability and finalize-boundary architecture"}
+{"file": ".phronia/spec/backend/error-handling.md", "reason": "Stable error codes and recovery diagnostics"}
