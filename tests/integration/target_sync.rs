@@ -1208,6 +1208,120 @@ fn integrate_apply_installs_phronia_finalize_boundary_on_existing_surfaces() {
 }
 
 #[test]
+fn integrate_status_reports_spec_framework_conflict() {
+    let project_root = temp_project_root("integrate-conflict-status");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis")).expect("create .trellis");
+    fs::create_dir_all(project_root.join(".phronia/spec/guides")).expect("create .phronia");
+    fs::write(
+        project_root.join(".phronia/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("phronia index should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Phronia,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::SpecGuide,
+                    true,
+                    IntegrationCapabilityStatus::Pending,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let output = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Status,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect("status is read-only and should succeed");
+
+        assert!(
+            output
+                .message
+                .contains("\"reason_code\": \"spec-framework-conflict\"")
+        );
+        assert!(output.message.contains("multiple spec/workflow frameworks"));
+        assert!(output.message.contains(".trellis"));
+    });
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
+fn integrate_apply_refuses_when_both_frameworks_exist() {
+    let project_root = temp_project_root("integrate-conflict-apply");
+    let omv_root = project_root.join(".omv");
+    fs::create_dir_all(&omv_root).expect(".omv root should be created");
+    fs::create_dir_all(project_root.join(".trellis")).expect("create .trellis");
+    fs::create_dir_all(project_root.join(".phronia/spec/guides")).expect("create .phronia");
+    fs::write(
+        project_root.join(".phronia/spec/guides/index.md"),
+        "# Thinking Guides\n",
+    )
+    .expect("phronia index should write");
+    storage::integrations::save_integrations(
+        &omv_root,
+        &OmvIntegrations {
+            schema_version: 1,
+            providers: vec![integration_provider(
+                IntegrationProvider::Phronia,
+                true,
+                true,
+                &[(
+                    IntegrationCapability::SpecGuide,
+                    true,
+                    IntegrationCapabilityStatus::Pending,
+                )],
+            )],
+        },
+    )
+    .expect("integrations state should write");
+
+    with_cwd(&project_root, || {
+        let err = app::run(Cli {
+            command: Command::Integrate(IntegrateCommand {
+                action: IntegrateAction::Apply,
+            }),
+            locale_override: Some("en-US".to_owned()),
+            ntp_override: None,
+            output_mode: OutputMode::Json,
+        })
+        .expect_err("two frameworks must not be resolved automatically");
+
+        assert_eq!(err.code(), "integration_apply_failed");
+        let structured = app::render_structured_error("integrate.apply", &err);
+        assert!(structured.contains("spec-framework-conflict"));
+        assert!(structured.contains("multiple spec/workflow frameworks"));
+    });
+
+    assert!(
+        !project_root
+            .join(".phronia/spec/guides/omv-versioning-guide.md")
+            .exists()
+    );
+    assert!(
+        !project_root
+            .join(".trellis/spec/guides/omv-versioning-guide.md")
+            .exists()
+    );
+
+    cleanup_project_root(&project_root);
+}
+
+#[test]
 fn integrate_status_warns_when_trellis_finalize_block_is_only_in_legacy_path() {
     let project_root = temp_project_root("integrate-status-finalize-boundary-mixed");
     let omv_root = project_root.join(".omv");

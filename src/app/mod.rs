@@ -1077,6 +1077,14 @@ fn apply_integration_capability(
         );
     };
 
+    if let Some(hosts) = spec_framework_conflict_for(project_root, provider) {
+        return failed_integration_result(
+            plan,
+            "spec-framework-conflict",
+            crate::core::integration::spec_framework_conflict_message(&hosts).as_str(),
+        );
+    }
+
     if !detect_required_spec_provider(project_root, provider) {
         return failed_integration_result(
             plan,
@@ -1588,6 +1596,20 @@ fn detect_integration_provider(
     }
 }
 
+fn spec_framework_conflict_for(
+    project_root: &Path,
+    provider: IntegrationProvider,
+) -> Option<Vec<&'static str>> {
+    if matches!(
+        provider,
+        IntegrationProvider::Trellis | IntegrationProvider::Phronia
+    ) {
+        crate::core::integration::detect_spec_framework_conflict(project_root)
+    } else {
+        None
+    }
+}
+
 /// Framework providers require an existing host installation before OMV may
 /// write projections into it. Agent hosts may bootstrap lightweight files.
 fn detect_required_spec_provider(project_root: &Path, provider: IntegrationProvider) -> bool {
@@ -1810,6 +1832,15 @@ fn probe_integration_capability(
             failure: None,
         };
     };
+    if let Some(hosts) = spec_framework_conflict_for(project_root, provider) {
+        return IntegrationCapabilityProbe {
+            installed: false,
+            failure: Some(IntegrationFailure {
+                reason_code: String::from("spec-framework-conflict"),
+                display_message: crate::core::integration::spec_framework_conflict_message(&hosts),
+            }),
+        };
+    }
     if target.behavior == IntegrationTargetBehavior::TrellisFinalizeBoundary {
         let selected_agents = selected_finalize_boundary_agents(state);
         return probe_trellis_finalize_boundary(project_root, &selected_agents);
@@ -3081,6 +3112,21 @@ fn persist_init_state(
     omv_root: &Path,
     draft: &InitDraft,
 ) -> Result<InitPersistenceOutcome, OmvError> {
+    let project_root = omv_root.parent().unwrap_or(omv_root);
+    if draft.selected_integrations().iter().any(|(provider, _)| {
+        matches!(
+            provider,
+            IntegrationProvider::Trellis | IntegrationProvider::Phronia
+        )
+    }) && let Some(hosts) =
+        crate::core::integration::detect_spec_framework_conflict(project_root)
+    {
+        return Err(AdapterError::FrameworkConflict {
+            reason: crate::core::integration::spec_framework_conflict_message(&hosts),
+        }
+        .into());
+    }
+
     std::fs::create_dir_all(omv_root)?;
 
     let mut config = load_config_if_exists(omv_root)?.unwrap_or_default();

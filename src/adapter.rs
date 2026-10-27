@@ -215,6 +215,8 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
             "do_not_edit_native_manifest_versions_directly": true,
             "host_adapter_files_are_derived_outputs": true,
             "do_not_treat_host_files_as_authority": true,
+            "spec_workflow_hosts_are_mutually_exclusive": true,
+            "sync_comparison_normalizes_line_endings": true,
             "generalized_target_kinds": [
                 "text-scalar",
                 "regex-replace",
@@ -242,6 +244,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "- Check target drift without mutation with `omv sync --check --json`.",
         "- Inspect host integration provider/capability status with `omv integrate status --json` when that command is available.",
         "- Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.",
+        "- Treat `.trellis` and `.phronia` as mutually exclusive OMV projection targets. When both host trees exist, resolve the conflict (remove or rename one framework) before running `omv integrate apply` or `omv adapter refresh`; OMV does not choose, rewrite records, or delete framework files automatically.",
         "- Change the managed version with `omv bump --json`.",
         "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.",
         "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together.",
@@ -293,6 +296,20 @@ pub fn install_selected(
     selection: &AdapterSelection,
 ) -> Result<AdapterInstallSummary, OmvError> {
     ensure_canonical_artifacts(omv_root)?;
+
+    // Never pick between two competing spec/workflow frameworks. The guard is
+    // scoped to spec adapters: agent-only installs do not own these hosts.
+    if selection
+        .specs
+        .iter()
+        .any(|spec| matches!(spec, SpecAdapter::Trellis | SpecAdapter::Phronia))
+        && let Some(hosts) = crate::core::integration::detect_spec_framework_conflict(project_root)
+    {
+        return Err(AdapterError::FrameworkConflict {
+            reason: crate::core::integration::spec_framework_conflict_message(&hosts),
+        }
+        .into());
+    }
 
     let mut registry = storage::adapters::load_adapters_if_exists(omv_root)?;
     let mut installed = Vec::new();
@@ -508,6 +525,25 @@ fn install_spec_adapter(
     adapter: SpecAdapter,
     preference: BackendPreference,
 ) -> Result<OmvAdapterInstallation, OmvError> {
+    // Workflow frameworks own their host tree. A stale adapter record must not
+    // silently recreate a framework the user removed; make them resolve it.
+    let required_host = match adapter {
+        SpecAdapter::Trellis => Some((".trellis", "Trellis")),
+        SpecAdapter::Phronia => Some((".phronia", "Phronia")),
+        SpecAdapter::OpenSpec => None,
+    };
+    if let Some((host_root, framework)) = required_host
+        && !project_root.join(host_root).exists()
+    {
+        return Err(AdapterError::Unsupported {
+            reason: format!(
+                "{framework} adapter requires an existing {host_root} directory. OMV will not recreate a framework host that was removed; remove the stale {:?} record from `.omv/adapters.toml` or install {framework} first, then rerun.",
+                adapter.as_str()
+            ),
+        }
+        .into());
+    }
+
     let targets = match adapter {
         SpecAdapter::OpenSpec => vec![
             CanonicalTarget {
@@ -1093,7 +1129,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::core::adapter::{AdapterKind, AdapterTargetMode};
+    use crate::core::adapter::{AdapterInstallMode, AdapterKind, AdapterTargetMode};
+    use crate::core::schema::{OmvAdapterInstallation, OmvAdapters};
     use crate::storage;
 
     use super::{
@@ -1339,6 +1376,89 @@ mod tests {
         assert_eq!(refreshed.installed.len(), 2);
         assert!(root.join("AGENTS.md").exists());
         assert!(root.join("openspec/project.md").exists());
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn install_spec_adapter_refuses_when_two_frameworks_exist() {
+        let root = temp_project_root("framework-conflict");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        fs::create_dir_all(root.join(".trellis")).expect("create .trellis");
+        fs::create_dir_all(root.join(".phronia")).expect("create .phronia");
+
+        let selection = AdapterSelection {
+            agents: Vec::new(),
+            specs: vec![crate::core::adapter::SpecAdapter::Phronia],
+        };
+        let err = install_selected(&omv_root, &root, &selection)
+            .expect_err("two frameworks must not be resolved automatically");
+        assert_eq!(err.code(), "spec_framework_conflict");
+        assert!(
+            err.to_string()
+                .contains("multiple spec/workflow frameworks")
+        );
+        assert!(
+            !root
+                .join(".phronia/spec/guides/omv-versioning-guide.md")
+                .exists()
+        );
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn refresh_does_not_recreate_a_removed_framework_host() {
+        let root = temp_project_root("stale-spec-record");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        fs::create_dir_all(root.join(".phronia")).expect("create .phronia");
+        storage::adapters::save_adapters(
+            &omv_root,
+            &OmvAdapters {
+                schema_version: 1,
+                installations: vec![OmvAdapterInstallation {
+                    kind: AdapterKind::Spec,
+                    name: String::from("trellis"),
+                    install_mode: AdapterInstallMode::Materialize,
+                    source_contract_version: super::CONTRACT_VERSION,
+                    targets: Vec::new(),
+                }],
+            },
+        )
+        .expect("stale registry should save");
+
+        let err = refresh_selected(&omv_root, &root, &AdapterSelection::default())
+            .expect_err("a stale record must not recreate .trellis");
+        assert_eq!(err.code(), "unsupported_adapter_operation");
+        assert!(err.to_string().contains("requires an existing .trellis"));
+        assert!(!root.join(".trellis").exists());
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn install_phronia_spec_adapter_uses_existing_host() {
+        let root = temp_project_root("phronia-spec-install");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        fs::create_dir_all(root.join(".phronia/spec/guides")).expect("create phronia guides");
+        fs::write(root.join(".phronia/spec/guides/index.md"), "# Guides\n")
+            .expect("write phronia index");
+
+        let selection = AdapterSelection {
+            agents: Vec::new(),
+            specs: vec![crate::core::adapter::SpecAdapter::Phronia],
+        };
+        install_selected(&omv_root, &root, &selection).expect("phronia install should succeed");
+
+        let guide = fs::read_to_string(root.join(".phronia/spec/guides/omv-versioning-guide.md"))
+            .expect("phronia guide should exist");
+        assert!(guide.contains("source=.omv/ai/adapters/phronia/guide.md"));
+        let index = fs::read_to_string(root.join(".phronia/spec/guides/index.md"))
+            .expect("phronia index should exist");
+        assert!(index.contains("OMV-MANAGED-BEGIN:integration-phronia-spec-index-snippet"));
 
         cleanup_project_root(&root);
     }

@@ -107,6 +107,7 @@ impl From<CliError> for OmvError {
 #[derive(Debug)]
 pub enum AdapterError {
     Conflict { path: PathBuf, reason: String },
+    FrameworkConflict { reason: String },
     Parse { path: PathBuf, reason: String },
     MissingRegistry { path: PathBuf },
     Unsupported { reason: String },
@@ -121,6 +122,9 @@ impl Display for AdapterError {
                     "adapter install conflict at {}: {reason}",
                     path.display()
                 )
+            }
+            Self::FrameworkConflict { reason } => {
+                write!(f, "spec/workflow framework conflict: {reason}")
             }
             Self::Parse { path, reason } => {
                 write!(
@@ -441,6 +445,7 @@ impl OmvError {
             Self::Adapter(AdapterError::Conflict { .. }) => "adapter_conflict",
             Self::Adapter(AdapterError::Parse { .. }) => "adapter_registry_parse_failed",
             Self::Adapter(AdapterError::MissingRegistry { .. }) => "missing_adapter_registry",
+            Self::Adapter(AdapterError::FrameworkConflict { .. }) => "spec_framework_conflict",
             Self::Adapter(AdapterError::Unsupported { .. }) => "unsupported_adapter_operation",
             Self::Config(ConfigError::RootResolution { .. }) => "root_resolution_failed",
             Self::Config(ConfigError::InvalidLocale(_)) => "invalid_locale",
@@ -523,6 +528,9 @@ impl OmvError {
                     String::from("path"),
                     Value::String(path.display().to_string()),
                 );
+            }
+            Self::Adapter(AdapterError::FrameworkConflict { reason }) => {
+                map.insert(String::from("reason"), Value::String(reason.clone()));
             }
             Self::Adapter(AdapterError::Unsupported { reason }) => {
                 map.insert(String::from("reason"), Value::String(reason.clone()));

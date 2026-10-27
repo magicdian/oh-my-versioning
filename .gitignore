@@ -6,3 +6,6 @@
 # Local IDE/editor state
 .vscode/
 .idea/
+
+# Local npm install of the OMV CLI
+node_modules/
