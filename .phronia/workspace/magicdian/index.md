@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-06-05
+- **Total Sessions**: 23
+- **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~809 | Active |
+| `journal-1.md` | ~835 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-10-27 | Phronia framework compatibility and coexistence guard | `4b0ef7e`, `ee7aa15`, `01164a0`, `b2335e1`, `f5ae264` | `dev` |
 | 22 | 2026-06-05 | Version-aware Trellis finalize-boundary (fix double-bump) | `fe2bb86` | `dev` |
 | 21 | 2026-06-04 | Fix omv init clobbering hand-edited targets.toml | `20e3318` | `dev` |
 | 20 | 2026-06-04 | Extend finalize-boundary to selected agents' finish-work entrypoints | `37478e5` | `dev` |

@@ -807,3 +807,29 @@ Fixed a unit of work being version-bumped twice (commit boundary + finish-work b
 ### Next Steps
 
 - None - task complete
+
+
+## Session 23: Phronia framework compatibility and coexistence guard
+<!-- phronia-session: v=2 fp=103db177f1fe77af -->
+
+**Date**: 2026-10-27
+**Task**: Phronia framework compatibility and coexistence guard
+**Branch**: `dev`
+
+### Summary
+
+Added Phronia as a first-class spec/workflow provider, refused ambiguous .trellis/.phronia coexistence without deleting either framework, prevented stale adapter records from recreating removed hosts, normalized CRLF/LF drift comparison, and made ZCode hooks cwd-independent. Bumped to 2610.27.2.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4b0ef7e` | fix: make zcode phronia hooks cwd-independent |
+| `ee7aa15` | feat: guard spec framework coexistence and normalize line endings |
+| `01164a0` | test: cover spec framework conflict guards |
+| `b2335e1` | chore: add local omv npm dependency |
+| `f5ae264` | chore: bump version to 2610.27.2 |
+
+### Status
+
+[OK] **Completed**
