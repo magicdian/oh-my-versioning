@@ -10,7 +10,7 @@ Wrap up the current session: archive the active task (and any other completed-bu
 ## Step 1: Survey current state
 
 ```bash
-python3 ./.trellis/scripts/get_context.py --mode record
+python3 ./.phronia/scripts/get_context.py --mode record
 ```
 
 This prints:
@@ -29,7 +29,7 @@ Run:
 git status --porcelain
 ```
 
-Filter out paths under `.trellis/workspace/` and `.trellis/tasks/` — those are managed by `add_session.py` and `task.py archive` auto-commits and will appear dirty as part of this skill's own work.
+Filter out paths under `.phronia/workspace/` and `.phronia/tasks/` — those are managed by `add_session.py` and `task.py archive` auto-commits and will appear dirty as part of this skill's own work.
 
 For each remaining dirty path, decide whether it belongs to **the current task** or to **other parallel work** (e.g., another terminal window editing the same repo). Heuristics:
 
@@ -50,7 +50,7 @@ Then route:
 ## Step 3: Archive task(s)
 
 ```bash
-python3 ./.trellis/scripts/task.py archive <task-name>
+python3 ./.phronia/scripts/task.py archive <task-name>
 ```
 
 At minimum: the current active task (if any). Plus any extra tasks the user confirmed in Step 1. Each archive produces a `chore(task): archive ...` commit via the script's auto-commit.
@@ -60,7 +60,7 @@ If there is no active task and the user did not confirm any cleanup archives, sk
 ## Step 4: Record session journal
 
 ```bash
-python3 ./.trellis/scripts/add_session.py \
+python3 ./.phronia/scripts/add_session.py \
   --title "Session Title" \
   --commit "hash1,hash2" \
   --summary "Brief summary"

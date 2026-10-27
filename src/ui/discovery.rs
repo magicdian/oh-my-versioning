@@ -55,6 +55,7 @@ pub fn discover_integrations(root: &Path) -> Vec<IntegrationProviderDiscovery> {
                     root.join(".codex").exists() || root.join("AGENTS.md").exists()
                 }
                 IntegrationProvider::Trellis => root.join(".trellis").exists(),
+                IntegrationProvider::Phronia => root.join(".phronia").exists(),
                 IntegrationProvider::OpenCode => {
                     root.join(".opencode").exists() || root.join("AGENTS.md").exists()
                 }
@@ -111,6 +112,7 @@ mod tests {
         let root = temp_dir("discovery-integrations");
         fs::create_dir_all(root.join(".codex")).expect("write .codex");
         fs::create_dir_all(root.join(".trellis")).expect("write .trellis");
+        fs::create_dir_all(root.join(".phronia")).expect("write .phronia");
 
         let result = discover_integrations(&root);
         assert!(
@@ -122,6 +124,11 @@ mod tests {
             result
                 .iter()
                 .any(|entry| entry.provider == IntegrationProvider::Trellis && entry.detected)
+        );
+        assert!(
+            result
+                .iter()
+                .any(|entry| entry.provider == IntegrationProvider::Phronia && entry.detected)
         );
 
         cleanup_dir(&root);

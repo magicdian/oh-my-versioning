@@ -1,24 +1,24 @@
-<!-- TRELLIS:START -->
-# Trellis Instructions
+<!-- PHRONIA:START -->
+# Phronia Instructions
 
 These instructions are for AI assistants working in this project.
 
-This project is managed by Trellis. The working knowledge you need lives under `.trellis/`:
+This project is managed by Phronia. The working knowledge you need lives under `.phronia/`:
 
-- `.trellis/workflow.md` — development phases, when to create tasks, skill routing
-- `.trellis/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
-- `.trellis/workspace/` — per-developer journals and session traces
-- `.trellis/tasks/` — active and archived tasks (PRDs, research, jsonl context)
+- `.phronia/workflow.md` — development phases, when to create tasks, skill routing
+- `.phronia/spec/` — package- and layer-scoped coding guidelines (read before writing code in a given layer)
+- `.phronia/workspace/` — per-developer journals and session traces
+- `.phronia/tasks/` — active and archived tasks (PRDs, research, jsonl context)
 
-If a Trellis command is available on your platform (e.g. `/trellis:finish-work`, `/trellis:continue`), prefer it over manual steps. Not every platform exposes every command.
+If a Phronia command is available on your platform (e.g. `/phronia:finish-work`, `/phronia:continue`), prefer it over manual steps. Not every platform exposes every command.
 
 If you're using Codex or another agent-capable tool, additional project-scoped helpers may live in:
-- `.agents/skills/` — reusable Trellis skills
+- `.agents/skills/` — reusable Phronia skills
 - `.codex/agents/` — optional custom subagents
 
-Managed by Trellis. Edits outside this block are preserved; edits inside may be overwritten by a future `trellis update`.
+Managed by Phronia. Edits outside this block are preserved; edits inside may be overwritten by a future `phronia update`.
 
-<!-- TRELLIS:END -->
+<!-- PHRONIA:END -->
 
 <!-- OMV-MANAGED-BEGIN:integration-project-instructions -->
 <!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->
@@ -30,7 +30,7 @@ Read `./.omv/ai/instructions.md` before touching project versions.
 - Use `omv plan --json` before editing version-sensitive surfaces.
 - Use `omv sync --check --json` to verify target drift without writing.
 - Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.
-- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ this runs at the commit-confirmation boundary, not at `/trellis:finish-work` (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.
+- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ and for Phronia this runs at the commit-confirmation boundary, not at the framework finish-work command (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.
 - After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, generated version files) together.
 - Use `omv bump --json` to advance the managed version.
 - Do not edit native manifest versions directly.

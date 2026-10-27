@@ -5,7 +5,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -X utf8 .codex/hooks/inject-workflow-state.py",
+            "command": "python3 -X utf8 .codex/hooks/phronia-hook.py --event user-prompt --platform codex",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^(?:phronia-implement|phronia-check|phronia-research)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -X utf8 .codex/hooks/phronia-hook.py --event subagent-spawn --platform codex",
             "timeout": 15
           }
         ]

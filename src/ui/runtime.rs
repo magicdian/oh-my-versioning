@@ -370,6 +370,7 @@ fn provider_label(provider: IntegrationProvider, catalog: &Catalog) -> String {
         IntegrationProvider::Claude => "integration.provider.claude",
         IntegrationProvider::Codex => "integration.provider.codex",
         IntegrationProvider::Trellis => "integration.provider.trellis",
+        IntegrationProvider::Phronia => "integration.provider.phronia",
         IntegrationProvider::OpenCode => "integration.provider.opencode",
     };
     catalog.t(key)

@@ -56,7 +56,7 @@ def _normalize_task_ref(task_ref: str) -> str:
         normalized = normalized[2:]
 
     if normalized.startswith("tasks/"):
-        return f".trellis/{normalized}"
+        return f".phronia/{normalized}"
 
     return normalized
 
@@ -66,16 +66,16 @@ def _resolve_task_dir(trellis_dir: Path, task_ref: str) -> Path:
     path_obj = Path(normalized)
     if path_obj.is_absolute():
         return path_obj
-    if normalized.startswith(".trellis/"):
+    if normalized.startswith(".phronia/"):
         return trellis_dir.parent / path_obj
     return trellis_dir / "tasks" / path_obj
 
 
 def _find_trellis_dir() -> Path | None:
-    """Walk up from cwd to find .trellis/ directory."""
+    """Walk up from cwd to find .phronia/ directory."""
     current = Path.cwd()
     for parent in [current, *current.parents]:
-        candidate = parent / ".trellis"
+        candidate = parent / ".phronia"
         if candidate.is_dir():
             return candidate
     return None

@@ -1,0 +1,91 @@
+---
+name: phronia-finish-work
+description: "Wrap up the current session: verify quality gate passed, remind user to commit, archive completed tasks, and record session progress to the developer journal. Use when done coding and ready to end the session."
+---
+
+# Finish Work
+
+Wrap up the current session: archive the active task (and any other completed-but-unarchived tasks the user wants to clean up) and record the session journal. Code commits are NOT done here — those happen in workflow Phase 3.4 before you invoke this command.
+
+<!-- OMV-MANAGED-BEGIN:spec-phronia-finalize-boundary-finish-work -->
+## OMV Finalize Boundary (Verify — run BEFORE archive)
+
+For Phronia, the OMV version bump already happened at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`). Do NOT bump again here. These steps only verify the commit-boundary bump landed.
+
+- [ ] Do NOT run `omv event finalize-boundary` in finish-work; the unit of work was already finalized at the commit boundary.
+- [ ] Run `omv sync --check --json`. Treat any required target drift as blocking: drift here means the commit-boundary bump was not synced/committed — surface it and resolve before archiving.
+- [ ] If `Cargo.lock` / other lock files or generated version files are uncommitted (e.g. the build step was skipped after the commit-boundary bump), run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) and commit them before archiving.
+<!-- OMV-MANAGED-END:spec-phronia-finalize-boundary-finish-work -->
+
+## Step 1: Survey current state
+
+```bash
+python3 ./.phronia/scripts/get_context.py --mode record
+```
+
+This prints:
+
+- **My active tasks** — review whether any besides the current one are actually done (code merged, AC met) and should be archived this round.
+- **Git status** — quick visual on what's dirty.
+- **Recent commits** — you'll need their hashes in Step 4 for `--commit`.
+
+If `--mode record` surfaces other completed tasks not tied to the current session, surface them to the user with a one-shot confirmation: "These N tasks look done — archive them too in this round? [y/N]". Default is no; the current active task is always archived in Step 3 regardless.
+
+## Step 2: Sanity check — classify dirty paths
+
+Run:
+
+```bash
+git status --porcelain
+```
+
+Filter out paths under `.phronia/workspace/` and `.phronia/tasks/` — those are managed by `add_session.py` and `task.py archive` auto-commits and will appear dirty as part of this skill's own work.
+
+For each remaining dirty path, decide whether it belongs to **the current task** or to **other parallel work** (e.g., another terminal window editing the same repo). Heuristics:
+
+- Paths referenced in the current task's `prd.md` / `implement.jsonl` / `check.jsonl` → current task
+- Paths in code areas matching the task's stated scope, or that you remember editing this session → current task
+- Paths in unrelated areas you have no recollection of touching this session → other parallel work
+
+Then route:
+
+- **Any remaining path looks like current-task work** — bail out with:
+  > "Working tree has uncommitted code changes from this task: `<list>`. Return to workflow Phase 3.4 to commit them before running ``finish-work` (Phronia command)`."
+
+  Do NOT run `git commit` here. Do NOT prompt the user to commit. The user goes back to Phase 3.4 and the AI drives the batched commit there.
+- **All remaining paths look unrelated** (other parallel-window work) — report them once and continue to Step 3:
+  > "FYI, dirty files outside this task's scope — leaving them for the other window: `<list>`."
+- **Genuinely unsure** — ask the user once: "Are `<list>` this task's work I forgot to commit, or another window's? (commit / ignore)" — then route per their answer.
+
+## Step 3: Archive task(s)
+
+```bash
+python3 ./.phronia/scripts/task.py archive <task-name>
+```
+
+At minimum: the current active task (if any). Plus any extra tasks the user confirmed in Step 1. Each archive produces a `chore(task): archive ...` commit via the script's auto-commit.
+
+If there is no active task and the user did not confirm any cleanup archives, skip this step.
+
+After archiving, refresh the mechanical knowledge layer:
+
+```bash
+phronia docs generate
+```
+
+If the change introduced a new module, data flow, or architectural decision,
+also update `docs/architecture.md`; if it changed capabilities or user-facing
+behavior, update `docs/product.md`. Both are narrative and reviewed like code.
+
+## Step 4: Record session journal
+
+```bash
+python3 ./.phronia/scripts/add_session.py \
+  --title "Session Title" \
+  --commit "hash1,hash2" \
+  --summary "Brief summary"
+```
+
+Use the work-commit hashes produced in Phase 3.4 (visible in Step 1's `Recent commits` list, or via `git log --oneline`) for `--commit`. Do not include the archive commit hashes from Step 3. This produces a `chore: record journal` commit.
+
+Final git log order: `<work commits from 3.4>` → `chore(task): archive ...` (one or more) → `chore: record journal`.

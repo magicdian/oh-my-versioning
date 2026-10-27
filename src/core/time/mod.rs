@@ -81,10 +81,9 @@ pub fn parse_timezone_offset_hours(raw: &str) -> Option<i32> {
     // Accept "UTC+8", "UTC+08", "UTC-5", "UTC-05", "UTC+0", "UTC-0"
     let (sign, digits) = if let Some(d) = rest.strip_prefix('+') {
         (1, d)
-    } else if let Some(d) = rest.strip_prefix('-') {
-        (-1, d)
     } else {
-        return None;
+        let d = rest.strip_prefix('-')?;
+        (-1, d)
     };
 
     let value: i32 = digits.parse().ok()?;

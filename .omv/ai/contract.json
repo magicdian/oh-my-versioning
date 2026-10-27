@@ -63,6 +63,7 @@
       "source_mapping": "<provider>-<boundary>",
       "task_identity": {
         "override": "--task-id <task-id>",
+        "phronia_default": ".phronia/.runtime/sessions/<session>.json",
         "trellis_default": ".trellis/.current-task"
       },
       "write": [
@@ -152,6 +153,16 @@
       "openspec": {
         "hidden_from_init": true,
         "mvp_supported": false,
+        "provider_type": "spec"
+      },
+      "phronia": {
+        "bootstrap_policy": "requires existing Phronia installation before mutation",
+        "capabilities": [
+          "spec-guide",
+          "spec-index-snippet",
+          "finalize-boundary"
+        ],
+        "mvp_supported": true,
         "provider_type": "spec"
       },
       "trellis": {

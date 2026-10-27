@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "rootDirName": ".phronia",
+  "brand": "phronia",
+  "packageScope": "@phronia",
+  "envPrefix": "PHRONIA_",
+  "legacyRootDirName": ".trellis",
+  "paths": {
+    "root": ".phronia",
+    "config": ".phronia/config.yaml",
+    "workflow": ".phronia/workflow.md",
+    "spec": ".phronia/spec",
+    "tasks": ".phronia/tasks",
+    "tasksArchive": ".phronia/tasks/archive",
+    "workspace": ".phronia/workspace",
+    "scripts": ".phronia/scripts",
+    "agents": ".phronia/agents",
+    "runtime": ".phronia/.runtime",
+    "sessions": ".phronia/.runtime/sessions",
+    "shellTickets": ".phronia/.runtime/shell-tickets",
+    "manifest": ".phronia/.template-hashes.json",
+    "adapterManifest": ".phronia/manifest.json",
+    "handshakes": ".phronia/.runtime/harness",
+    "rulesCompiled": ".phronia/.runtime/rules.json",
+    "gate": ".phronia/gate.yaml",
+    "worktrees": ".phronia/worktrees",
+    "worktreeRegistry": ".phronia/.runtime/worktrees.json",
+    "version": ".phronia/.version",
+    "developer": ".phronia/.developer",
+    "currentTask": ".phronia/.current-task"
+  }
+}

@@ -14,6 +14,7 @@ use crate::storage;
 pub const AI_DIR: &str = "ai";
 pub const CONTRACT_VERSION: u32 = 1;
 pub const TRELLIS_FINISH_WORK_BLOCK_NAME: &str = "spec-trellis-finalize-boundary-finish-work";
+pub const PHRONIA_FINISH_WORK_BLOCK_NAME: &str = "spec-phronia-finalize-boundary-finish-work";
 
 const MANAGED_BEGIN_PREFIX: &str = "<!-- OMV-MANAGED-BEGIN:";
 const MANAGED_END_PREFIX: &str = "<!-- OMV-MANAGED-END:";
@@ -122,6 +123,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                 "source_mapping": "<provider>-<boundary>",
                 "task_identity": {
                     "trellis_default": ".trellis/.current-task",
+                    "phronia_default": ".phronia/.runtime/sessions/<session>.json",
                     "override": "--task-id <task-id>"
                 },
                 "derived_fields": {
@@ -176,6 +178,12 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                     "provider_type": "spec",
                     "mvp_supported": true,
                     "bootstrap_policy": "requires existing Trellis installation before mutation",
+                    "capabilities": ["spec-guide", "spec-index-snippet", "finalize-boundary"]
+                },
+                "phronia": {
+                    "provider_type": "spec",
+                    "mvp_supported": true,
+                    "bootstrap_policy": "requires existing Phronia installation before mutation",
                     "capabilities": ["spec-guide", "spec-index-snippet", "finalize-boundary"]
                 },
                 "claude": {
@@ -241,7 +249,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "- Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.",
         "- Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.",
         "- Treat runtime export files such as `src/generated/version.rs` and `include/omv_version.h` as generated read-only views.",
-        "- Treat host files such as `AGENTS.md`, `CLAUDE.md`, `.codex/skills/*`, and Trellis/OpenSpec guides as derived projections, not OMV authority.",
+        "- Treat host files such as `AGENTS.md`, `CLAUDE.md`, `.codex/skills/*`, and Trellis/Phronia/OpenSpec guides as derived projections, not OMV authority.",
         "",
         "When integrating OMV with agents or spec frameworks, keep the detailed rules in `.omv/ai/*` and project only thin host adapters into external files. Legacy `omv adapter ...` commands remain temporary compatibility commands during the MVP transition; new automation should prefer `omv integrate status/apply` where available.",
         "",
@@ -357,16 +365,53 @@ pub fn trellis_finish_work_finalize_block(is_v05_or_later: bool) -> String {
 }
 
 pub fn upsert_trellis_finish_work_finalize_block(existing: &str, is_v05_or_later: bool) -> String {
-    let begin = format!("{MANAGED_BEGIN_PREFIX}{TRELLIS_FINISH_WORK_BLOCK_NAME} -->");
-    let end = format!("{MANAGED_END_PREFIX}{TRELLIS_FINISH_WORK_BLOCK_NAME} -->");
-    let block = format!(
-        "{begin}\n{}\n{end}\n",
-        trellis_finish_work_finalize_block(is_v05_or_later)
-    );
+    upsert_finish_work_finalize_block(
+        existing,
+        TRELLIS_FINISH_WORK_BLOCK_NAME,
+        &trellis_finish_work_finalize_block(is_v05_or_later),
+        "\n## Quick Check Flow",
+    )
+}
+
+/// OMV finalize-boundary guidance for Phronia finish-work surfaces.
+///
+/// Phronia always commits in workflow Phase 3.4 before `/phronia:finish-work`
+/// runs, so the OMV bump belongs to the commit boundary. This block is
+/// verification-only: it must never trigger a second bump during archiving.
+pub fn phronia_finish_work_finalize_block() -> String {
+    [
+        "## OMV Finalize Boundary (Verify — run BEFORE archive)",
+        "",
+        "For Phronia, the OMV version bump already happened at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`). Do NOT bump again here. These steps only verify the commit-boundary bump landed.",
+        "",
+        "- [ ] Do NOT run `omv event finalize-boundary` in finish-work; the unit of work was already finalized at the commit boundary.",
+        "- [ ] Run `omv sync --check --json`. Treat any required target drift as blocking: drift here means the commit-boundary bump was not synced/committed — surface it and resolve before archiving.",
+        "- [ ] If `Cargo.lock` / other lock files or generated version files are uncommitted (e.g. the build step was skipped after the commit-boundary bump), run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) and commit them before archiving.",
+    ]
+    .join("\n")
+}
+
+pub fn upsert_phronia_finish_work_finalize_block(existing: &str) -> String {
+    upsert_finish_work_finalize_block(
+        existing,
+        PHRONIA_FINISH_WORK_BLOCK_NAME,
+        &phronia_finish_work_finalize_block(),
+        "\n## Step 1:",
+    )
+}
+
+fn upsert_finish_work_finalize_block(
+    existing: &str,
+    block_name: &str,
+    block_body: &str,
+    anchor: &str,
+) -> String {
+    let begin = format!("{MANAGED_BEGIN_PREFIX}{block_name} -->");
+    let end = format!("{MANAGED_END_PREFIX}{block_name} -->");
+    let block = format!("{begin}\n{block_body}\n{end}\n");
 
     let without_existing = remove_managed_block(existing, &begin, &end);
-    let marker = "\n## Quick Check Flow";
-    if let Some(index) = without_existing.find(marker) {
+    if let Some(index) = without_existing.find(anchor) {
         let mut output = String::new();
         output.push_str(without_existing[..index].trim_end());
         output.push_str("\n\n");
@@ -485,6 +530,18 @@ fn install_spec_adapter(
             CanonicalTarget {
                 source_rel: "adapters/trellis/index-snippet.md",
                 host_rel: ".trellis/spec/guides/index.md",
+                behavior: SourceInstallBehavior::ManagedBlockOnly,
+            },
+        ],
+        SpecAdapter::Phronia => vec![
+            CanonicalTarget {
+                source_rel: "adapters/phronia/guide.md",
+                host_rel: ".phronia/spec/guides/omv-versioning-guide.md",
+                behavior: SourceInstallBehavior::DedicatedFile,
+            },
+            CanonicalTarget {
+                source_rel: "adapters/phronia/index-snippet.md",
+                host_rel: ".phronia/spec/guides/index.md",
                 behavior: SourceInstallBehavior::ManagedBlockOnly,
             },
         ],
@@ -768,6 +825,11 @@ pub(crate) fn wrap_managed_file(source_rel: &str, rendered: &str) -> String {
     let marker = format!(
         "<!-- OMV-MANAGED-FILE source=.omv/{AI_DIR}/{source_rel} contract={CONTRACT_VERSION} -->"
     );
+    // Canonical sources already carry their own marker. Wrapping again would
+    // duplicate it in every materialized host file.
+    if rendered.contains(&marker) {
+        return rendered.to_owned();
+    }
     prepend_managed_marker(&marker, rendered)
 }
 
@@ -793,6 +855,13 @@ fn is_omv_managed_file(content: &str) -> bool {
 }
 
 fn managed_block_name(kind: AdapterKind, name: &str, source_rel: &str) -> String {
+    // Legacy spec adapters and the integration worker both inject the spec
+    // index snippet. They must share one block name or refresh adds a second
+    // copy of the same section.
+    if kind == AdapterKind::Spec && source_rel.ends_with("index-snippet.md") {
+        return format!("integration-{name}-spec-index-snippet");
+    }
+
     format!(
         "{}-{}-{}",
         kind.as_str(),
@@ -947,6 +1016,35 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
             .join("\n"),
         ),
         (
+            "adapters/phronia/guide.md",
+            [
+                "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/phronia/guide.md contract=1 -->",
+                "# OMV Versioning Guide",
+                "",
+                "- `.omv/state.toml` is the version source of truth.",
+                "- Use `omv current --json` for reads.",
+                "- Use `omv plan --json` to preview target changes.",
+                "- Use `omv sync --check --json` to verify drift without mutation.",
+                "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability state where available.",
+                "- The OMV finalize-boundary bump happens at the Phronia Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/phronia:finish-work` (whose OMV block is verification-only). Supply an explicit `change_type`; do not infer it.",
+                "- Use `omv bump --json` for writes.",
+                "- Do not trust manifest versions as authority.",
+                "- Do not treat this guide or other host files as OMV authority.",
+                "",
+                "Canonical reference: `./.omv/ai/instructions.md`",
+            ]
+            .join("\n"),
+        ),
+        (
+            "adapters/phronia/index-snippet.md",
+            [
+                "## OMV",
+                "",
+                "- [OMV Versioning Guide](./omv-versioning-guide.md) | Managed version and integration source rules",
+            ]
+            .join("\n"),
+        ),
+        (
             "adapters/project-instructions.md",
             [
                 "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/project-instructions.md contract=1 -->",
@@ -958,7 +1056,7 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
                 "- Use `omv plan --json` before editing version-sensitive surfaces.",
                 "- Use `omv sync --check --json` to verify target drift without writing.",
                 "- Use `omv integrate status --json` and `omv integrate apply --json` for host integration provider/capability status where available.",
-                "- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ this runs at the commit-confirmation boundary, not at `/trellis:finish-work` (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.",
+                "- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ and for Phronia this runs at the commit-confirmation boundary, not at the framework finish-work command (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.",
                 "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, generated version files) together.",
                 "- Use `omv bump --json` to advance the managed version.",
                 "- Do not edit native manifest versions directly.",
@@ -995,12 +1093,12 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::core::adapter::AdapterTargetMode;
+    use crate::core::adapter::{AdapterKind, AdapterTargetMode};
     use crate::storage;
 
     use super::{
         AdapterSelection, ensure_canonical_artifacts, install_selected, refresh_selected, status,
-        upsert_trellis_finish_work_finalize_block,
+        upsert_phronia_finish_work_finalize_block, upsert_trellis_finish_work_finalize_block,
     };
 
     #[test]
@@ -1030,6 +1128,30 @@ mod tests {
         assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
 
         cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn spec_index_managed_block_name_matches_integration_name() {
+        assert_eq!(
+            super::managed_block_name(
+                AdapterKind::Spec,
+                "phronia",
+                "adapters/phronia/index-snippet.md"
+            ),
+            "integration-phronia-spec-index-snippet"
+        );
+    }
+
+    #[test]
+    fn managed_file_wrapping_does_not_duplicate_embedded_marker() {
+        let marked = "<!-- OMV-MANAGED-FILE source=.omv/ai/adapters/phronia/guide.md contract=1 -->\n# Guide\n";
+        let wrapped = super::wrap_managed_file("adapters/phronia/guide.md", marked);
+        assert_eq!(wrapped, marked);
+        assert_eq!(wrapped.matches("OMV-MANAGED-FILE").count(), 1);
+
+        let unmarked = "# Guide\n";
+        let wrapped = super::wrap_managed_file("adapters/phronia/guide.md", unmarked);
+        assert_eq!(wrapped.matches("OMV-MANAGED-FILE").count(), 1);
     }
 
     #[test]
@@ -1079,6 +1201,32 @@ mod tests {
         assert!(rendered.contains("## OMV Finalize Boundary"));
         assert!(!rendered.contains("omv event finalize-boundary --provider trellis"));
         assert!(rendered.contains("omv sync --check"));
+    }
+
+    #[test]
+    fn phronia_finish_work_block_is_verification_only_and_inserted_before_step_1() {
+        let input = "---\nname: phronia-finish-work\n---\n\n# Finish Work\n\nintro\n\n## Step 1: Survey current state\n\nbody\n";
+        let once = upsert_phronia_finish_work_finalize_block(input);
+        let twice = upsert_phronia_finish_work_finalize_block(&once);
+
+        assert_eq!(once, twice);
+        assert_eq!(twice.matches("OMV-MANAGED-BEGIN").count(), 1);
+        assert!(twice.contains("OMV-MANAGED-BEGIN:spec-phronia-finalize-boundary-finish-work"));
+        assert!(twice.contains("## OMV Finalize Boundary"));
+        // Phronia bumps at the Phase 3.4 commit boundary, never in finish-work.
+        assert!(!twice.contains("omv event finalize-boundary --provider phronia"));
+        assert!(twice.contains("Do NOT run `omv event finalize-boundary`"));
+        assert!(twice.contains("omv sync --check --json"));
+
+        let block = twice
+            .find("OMV Finalize Boundary")
+            .expect("managed block should exist");
+        let step = twice
+            .find("## Step 1: Survey current state")
+            .expect("step 1 should exist");
+        assert!(block < step);
+        // Frontmatter stays first.
+        assert!(twice.starts_with("---\nname: phronia-finish-work\n---\n"));
     }
 
     #[test]

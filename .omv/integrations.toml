@@ -56,6 +56,29 @@ status = "installed"
 
 [[providers]]
 provider = "trellis"
+selected = false
+
+[providers.detection]
+detected = false
+recommended = false
+
+[[providers.capabilities]]
+capability = "spec-guide"
+selected = false
+status = "selected"
+
+[[providers.capabilities]]
+capability = "spec-index-snippet"
+selected = false
+status = "selected"
+
+[[providers.capabilities]]
+capability = "finalize-boundary"
+selected = false
+status = "installed"
+
+[[providers]]
+provider = "phronia"
 selected = true
 
 [providers.detection]

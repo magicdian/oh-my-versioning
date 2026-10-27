@@ -1,0 +1,52 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "matcher": "startup|clear|compact",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event session-start --platform zcode",
+              "timeout": 30
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event user-prompt --platform zcode",
+              "timeout": 15
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Agent|Task",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event subagent-spawn --platform zcode",
+              "timeout": 30
+            }
+          ]
+        },
+        {
+          "matcher": "Bash",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 \"${ZCODE_PROJECT_DIR}/.zcode/hooks/phronia-hook.py\" --event pre-shell --platform zcode",
+              "timeout": 5
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
