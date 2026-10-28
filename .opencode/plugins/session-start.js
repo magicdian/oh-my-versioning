@@ -1,6 +1,6 @@
 // phronia-shim: opencode@v1
-// shim-version: 2610.27.8
-// build-id: ec26ef124d33
+// shim-version: 2610.28.3
+// build-id: ae29014ff865
 // content-hash: 11b8405666fe8d870aa6a9d18bf3d49f225d38f5aef05ca1c6f7a360b5722cb7
 // DO NOT EDIT. Regenerate with: pnpm build:shims
 
