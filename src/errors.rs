@@ -65,6 +65,8 @@ pub enum CliError {
     MissingSpecValue,
     UnknownAgentAdapter(String),
     UnknownSpecAdapter(String),
+    MissingOptionValue(String),
+    ReleaseModeDenied { command: String },
     UserCancelled,
 }
 
@@ -91,6 +93,11 @@ impl Display for CliError {
             Self::MissingSpecValue => write!(f, "missing value after --spec"),
             Self::UnknownAgentAdapter(name) => write!(f, "unknown agent adapter: {name}"),
             Self::UnknownSpecAdapter(name) => write!(f, "unknown spec adapter: {name}"),
+            Self::MissingOptionValue(option) => write!(f, "missing value after {option}"),
+            Self::ReleaseModeDenied { command } => write!(
+                f,
+                "release_mode=pipeline: `{command}` may only write in the release pipeline; pass --as-release in an authorized release job"
+            ),
             Self::UserCancelled => write!(f, "operation cancelled by user"),
         }
     }
@@ -154,6 +161,7 @@ pub enum ConfigError {
     RootResolution { cwd: String },
     InvalidLocale(String),
     InvalidBuildPolicy(String),
+    InvalidReleaseMode(String),
     Parse { path: PathBuf, reason: String },
     Missing { path: PathBuf },
 }
@@ -166,6 +174,7 @@ impl Display for ConfigError {
             }
             Self::InvalidLocale(locale) => write!(f, "invalid locale: {locale}"),
             Self::InvalidBuildPolicy(policy) => write!(f, "invalid build policy: {policy}"),
+            Self::InvalidReleaseMode(mode) => write!(f, "invalid release mode: {mode}"),
             Self::Parse { path, reason } => {
                 write!(f, "failed to parse config {}: {reason}", path.display())
             }
@@ -252,6 +261,7 @@ impl From<IntegrationError> for OmvError {
 pub enum StateError {
     Parse { path: PathBuf, reason: String },
     MissingState { path: PathBuf },
+    ExpectationMismatch { expected: String, actual: String },
 }
 
 impl Display for StateError {
@@ -261,6 +271,10 @@ impl Display for StateError {
                 write!(f, "failed to parse state {}: {reason}", path.display())
             }
             Self::MissingState { path } => write!(f, "missing state file: {}", path.display()),
+            Self::ExpectationMismatch { expected, actual } => write!(
+                f,
+                "state moved: expected last_issued_version={expected}, found {actual}"
+            ),
         }
     }
 }
@@ -441,6 +455,8 @@ impl OmvError {
             Self::Cli(CliError::MissingSpecValue) => "missing_spec_value",
             Self::Cli(CliError::UnknownAgentAdapter(_)) => "unknown_agent_adapter",
             Self::Cli(CliError::UnknownSpecAdapter(_)) => "unknown_spec_adapter",
+            Self::Cli(CliError::MissingOptionValue(_)) => "missing_option_value",
+            Self::Cli(CliError::ReleaseModeDenied { .. }) => "release_mode_denied",
             Self::Cli(CliError::UserCancelled) => "user_cancelled",
             Self::Adapter(AdapterError::Conflict { .. }) => "adapter_conflict",
             Self::Adapter(AdapterError::Parse { .. }) => "adapter_registry_parse_failed",
@@ -450,6 +466,7 @@ impl OmvError {
             Self::Config(ConfigError::RootResolution { .. }) => "root_resolution_failed",
             Self::Config(ConfigError::InvalidLocale(_)) => "invalid_locale",
             Self::Config(ConfigError::InvalidBuildPolicy(_)) => "invalid_build_policy",
+            Self::Config(ConfigError::InvalidReleaseMode(_)) => "invalid_release_mode",
             Self::Config(ConfigError::Parse { .. }) => "config_parse_failed",
             Self::Config(ConfigError::Missing { .. }) => "missing_config",
             Self::Finalization(FinalizationError::Parse { .. }) => "finalizations_parse_failed",
@@ -462,6 +479,7 @@ impl OmvError {
             Self::Integration(IntegrationError::ApplyFailed { .. }) => "integration_apply_failed",
             Self::State(StateError::Parse { .. }) => "state_parse_failed",
             Self::State(StateError::MissingState { .. }) => "missing_state",
+            Self::State(StateError::ExpectationMismatch { .. }) => "state_moved",
             Self::Time(TimeError::InvalidDateFormat(_)) => "invalid_date_format",
             Self::Time(TimeError::FutureStoredDate { .. }) => "future_stored_date",
             Self::Ntp(NtpError::Unavailable(_)) => "ntp_unavailable",
@@ -515,6 +533,22 @@ impl OmvError {
             Self::Cli(CliError::UnknownSpecAdapter(name)) => {
                 map.insert(String::from("spec"), Value::String(name.clone()));
             }
+            Self::Cli(CliError::MissingOptionValue(option)) => {
+                map.insert(String::from("option"), Value::String(option.clone()));
+            }
+            Self::Cli(CliError::ReleaseModeDenied { command }) => {
+                map.insert(String::from("command"), Value::String(command.clone()));
+                map.insert(
+                    String::from("release_mode"),
+                    Value::String(String::from("pipeline")),
+                );
+                map.insert(
+                    String::from("hint"),
+                    Value::String(String::from(
+                        "release jobs must pass --as-release; other callers should use current/plan/sync --check",
+                    )),
+                );
+            }
             Self::Adapter(AdapterError::Conflict { path, reason })
             | Self::Adapter(AdapterError::Parse { path, reason }) => {
                 map.insert(
@@ -544,6 +578,9 @@ impl OmvError {
             Self::Config(ConfigError::InvalidBuildPolicy(policy)) => {
                 map.insert(String::from("build_policy"), Value::String(policy.clone()));
             }
+            Self::Config(ConfigError::InvalidReleaseMode(mode)) => {
+                map.insert(String::from("release_mode"), Value::String(mode.clone()));
+            }
             Self::Config(ConfigError::Parse { path, reason })
             | Self::Finalization(FinalizationError::Parse { path, reason })
             | Self::Integration(IntegrationError::Parse { path, reason })
@@ -563,6 +600,10 @@ impl OmvError {
                     String::from("path"),
                     Value::String(path.display().to_string()),
                 );
+            }
+            Self::State(StateError::ExpectationMismatch { expected, actual }) => {
+                map.insert(String::from("expected"), Value::String(expected.clone()));
+                map.insert(String::from("actual"), Value::String(actual.clone()));
             }
             Self::Finalization(FinalizationError::MissingField(field)) => {
                 map.insert(String::from("field"), Value::String(field.clone()));

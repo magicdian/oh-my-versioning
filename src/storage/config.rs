@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::OmvConfig;
 use crate::core::target::ProjectProfile;
-use crate::core::versioning::{BuildPolicy, VersionOutput};
+use crate::core::versioning::{BuildPolicy, ReleaseMode, VersionOutput};
 use crate::errors::{ConfigError, OmvError};
 
 use super::{CONFIG_FILE, atomic};
@@ -49,6 +49,10 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
                         reason: format!("invalid project_profile: {value}"),
                     })?
             }
+            "release_mode" => {
+                config.release_mode = ReleaseMode::parse(&value)
+                    .ok_or_else(|| ConfigError::InvalidReleaseMode(value.clone()))?
+            }
             "version_output" => {
                 config.version_output =
                     VersionOutput::parse(&value).ok_or_else(|| ConfigError::Parse {
@@ -76,11 +80,12 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
 pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
     let path = path_for(root);
     let content = format!(
-        "schema_version = {}\nlocale = \"{}\"\ntimezone = \"{}\"\nproject_profile = \"{}\"\nversion_output = \"{}\"\nbuild_policy = \"{}\"\nntp_enabled = {}\n",
+        "schema_version = {}\nlocale = \"{}\"\ntimezone = \"{}\"\nproject_profile = \"{}\"\nrelease_mode = \"{}\"\nversion_output = \"{}\"\nbuild_policy = \"{}\"\nntp_enabled = {}\n",
         config.schema_version,
         config.locale.as_str(),
         config.timezone,
         config.project_profile.as_str(),
+        config.release_mode.as_str(),
         config.version_output.as_str(),
         config.build_policy.as_str(),
         config.ntp_enabled,
@@ -113,7 +118,7 @@ mod tests {
     use crate::core::locale::OperatorLocale;
     use crate::core::schema::OmvConfig;
     use crate::core::target::ProjectProfile;
-    use crate::core::versioning::{BuildPolicy, VersionOutput};
+    use crate::core::versioning::{BuildPolicy, ReleaseMode, VersionOutput};
     use crate::errors::{ConfigError, OmvError};
 
     use super::{load_config, path_for, save_config};
@@ -127,6 +132,7 @@ mod tests {
             locale: OperatorLocale::ZhCn,
             timezone: "UTC+8".to_owned(),
             project_profile: ProjectProfile::Oss,
+            release_mode: ReleaseMode::Pipeline,
             version_output: VersionOutput::Semver,
             build_policy: BuildPolicy::Continuous,
             ntp_enabled: false,
@@ -156,6 +162,52 @@ ntp_enabled = true
         let err = load_config(&root).expect_err("invalid locale must fail");
         match err {
             OmvError::Config(ConfigError::InvalidLocale(locale)) => assert_eq!(locale, "fr-FR"),
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn config_defaults_release_mode_to_local_when_absent() {
+        let root = temp_omv_root("config-release-mode-absent");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = true
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let loaded = load_config(&root).expect("config should load");
+        assert_eq!(loaded.release_mode, ReleaseMode::Local);
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn config_rejects_invalid_release_mode() {
+        let root = temp_omv_root("config-invalid-release-mode");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "sometimes"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = true
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("invalid release mode must fail");
+        match err {
+            OmvError::Config(ConfigError::InvalidReleaseMode(mode)) => {
+                assert_eq!(mode, "sometimes")
+            }
             other => panic!("unexpected error variant: {other}"),
         }
 

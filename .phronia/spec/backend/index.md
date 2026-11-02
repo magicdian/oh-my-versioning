@@ -57,6 +57,11 @@ Also read:
 
 - `.omv/` is the only source of truth; language-native manifests are derived
   outputs.
+- `release_mode` in `.omv/config.toml` defaults to `local`. In `pipeline` mode
+  only the release job may write version surfaces; `bump`/`sync` require
+  `--as-release`, finalize events return a read-only `pending` result, and
+  `bump` supports `--expect`/`--now`/`--dry-run`. See
+  `docs/RELEASE_PIPELINE.md`.
 - V1 stores configuration, mutable state, and targets in separate TOML files.
 - V1 stores legacy adapter projection recovery state in `.omv/adapters.toml`.
 - MVP host integration selection, detection snapshots, capability status, and

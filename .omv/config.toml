@@ -2,6 +2,7 @@ schema_version = 1
 locale = "en-US"
 timezone = "UTC+8"
 project_profile = "personal"
+release_mode = "local"
 version_output = "date-triplet"
 build_policy = "daily-reset"
 ntp_enabled = true

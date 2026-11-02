@@ -182,6 +182,7 @@
     "policy": "providers are internal registry entries in MVP; third-party plugin runtime is future work",
     "public_runtime_in_mvp": false
   },
+  "release_mode": "local",
   "rules": {
     "do_not_edit_native_manifest_versions_directly": true,
     "do_not_treat_host_files_as_authority": true,

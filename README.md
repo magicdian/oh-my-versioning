@@ -26,15 +26,33 @@ GitHub Release. End users do not need a Rust toolchain.
   and `go.mod` are synchronized outputs.
 - Runtime exports such as `src/generated/version.rs` and
   `include/omv_version.h` are generated read-only views for application code.
-- Automation and AI tools should read version state with `omv current` and
-  update it with `omv bump`.
+- Automation and AI tools should read version state with `omv current`. In
+  `local` mode they advance it with `omv bump`; in `pipeline` mode only the
+  release job writes it.
+
+## Release Modes
+
+OMV supports two project-level release policies in `.omv/config.toml`:
+
+- `release_mode = "local"` (default): the current local workflow. `omv bump`
+  and `omv sync` write for everyone.
+- `release_mode = "pipeline"`: the release pipeline is the only writer of
+  version truth. Contributors use `omv current`, `omv plan`, and
+  `omv sync --check`; `omv bump` / `omv sync` require `--as-release` and are
+  intended for the release job. Finalize events return a read-only `pending`
+  result.
+
+See [docs/RELEASE_PIPELINE.md](docs/RELEASE_PIPELINE.md) for the architecture,
+CI job examples, permissions, idempotency, and migration guidance.
 
 ## Commands
 
 - `omv init`: interactive menuconfig-style initialization
 - `omv current`: print the current managed version and `.omv` state summary
 - `omv bump`: compute the next version and sync enabled targets
+  (`--expect <version>`, `--now <YYYY-MM-DD>`, `--dry-run`, `--as-release`)
 - `omv sync`: re-sync manifests/runtime exports from current `.omv/state.toml`
+  (`--check`, `--as-release`)
 - `omv adapter install`: install agent/spec adapters into host frameworks
 - `omv adapter refresh`: re-render previously installed adapters from registry
 - `omv adapter list`: list available adapters

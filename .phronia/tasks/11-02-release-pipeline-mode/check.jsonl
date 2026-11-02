@@ -1,0 +1,3 @@
+{"file": ".phronia/spec/backend/error-handling.md", "reason": "Verify typed errors and structured codes"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Verify tests and quality bar"}
+{"file": ".phronia/spec/backend/localization-guidelines.md", "reason": "Verify catalog parity"}

@@ -4,7 +4,9 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omv::app;
-use omv::cli::{Cli, Command, IntegrateAction, IntegrateCommand, OutputMode, SyncCommand};
+use omv::cli::{
+    BumpCommand, Cli, Command, IntegrateAction, IntegrateCommand, OutputMode, SyncCommand,
+};
 use omv::core::date::LogicalDate;
 use omv::core::integration::{
     IntegrationCapability, IntegrationCapabilityStatus, IntegrationDetectionSnapshot,
@@ -192,7 +194,7 @@ fn bump_command_updates_state_and_syncs_registered_targets() {
 
     with_cwd(&project_root, || {
         app::run(Cli {
-            command: Command::Bump,
+            command: Command::Bump(BumpCommand::default()),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Text,
@@ -318,7 +320,10 @@ fn sync_check_passes_when_targets_are_current_and_fails_on_drift_without_mutatio
         .expect("sync command should seed targets");
 
         let ok = app::run(Cli {
-            command: Command::Sync(SyncCommand { check: true }),
+            command: Command::Sync(SyncCommand {
+                check: true,
+                as_release: false,
+            }),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Json,
@@ -330,7 +335,10 @@ fn sync_check_passes_when_targets_are_current_and_fails_on_drift_without_mutatio
         fs::write(project_root.join("Cargo.toml"), "version = \"0.0.0\"\n")
             .expect("drift seed should write");
         let err = app::run(Cli {
-            command: Command::Sync(SyncCommand { check: true }),
+            command: Command::Sync(SyncCommand {
+                check: true,
+                as_release: false,
+            }),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Json,
@@ -392,7 +400,10 @@ fn mixed_v2_targets_plan_check_and_sync_through_shared_engine() {
         assert!(plan.message.contains("\"status\": \"drift\""));
 
         let err = app::run(Cli {
-            command: Command::Sync(SyncCommand { check: true }),
+            command: Command::Sync(SyncCommand {
+                check: true,
+                as_release: false,
+            }),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Json,
@@ -410,7 +421,10 @@ fn mixed_v2_targets_plan_check_and_sync_through_shared_engine() {
         .expect("sync should apply mixed V2 targets");
 
         app::run(Cli {
-            command: Command::Sync(SyncCommand { check: true }),
+            command: Command::Sync(SyncCommand {
+                check: true,
+                as_release: false,
+            }),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Json,
@@ -492,7 +506,10 @@ path = "future.toml"
         assert!(plan.message.contains("update OMV"));
 
         let err = app::run(Cli {
-            command: Command::Sync(SyncCommand { check: true }),
+            command: Command::Sync(SyncCommand {
+                check: true,
+                as_release: false,
+            }),
             locale_override: Some("en-US".to_owned()),
             ntp_override: None,
             output_mode: OutputMode::Json,
