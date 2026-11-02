@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 23
-- **Last Active**: 2026-10-27
+- **Total Sessions**: 24
+- **Last Active**: 2026-11-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~835 | Active |
+| `journal-1.md` | ~858 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 24 | 2026-11-02 | Pipeline release mode and release-safe bump | `4504b3a1`, `de5056e2` | `dev` |
 | 23 | 2026-10-27 | Phronia framework compatibility and coexistence guard | `4b0ef7e`, `ee7aa15`, `01164a0`, `b2335e1`, `f5ae264` | `dev` |
 | 22 | 2026-06-05 | Version-aware Trellis finalize-boundary (fix double-bump) | `fe2bb86` | `dev` |
 | 21 | 2026-06-04 | Fix omv init clobbering hand-edited targets.toml | `20e3318` | `dev` |

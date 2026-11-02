@@ -833,3 +833,26 @@ Added Phronia as a first-class spec/workflow provider, refused ambiguous .trelli
 ### Status
 
 [OK] **Completed**
+
+
+## Session 24: Pipeline release mode and release-safe bump
+<!-- phronia-session: v=2 fp=12820d502ed00962 -->
+
+**Date**: 2026-11-02
+**Task**: Pipeline release mode and release-safe bump
+**Branch**: `dev`
+
+### Summary
+
+Added opt-in release_mode=pipeline with single-writer guards, bump --expect/--now/--dry-run, pipeline-aware guidance, docs/RELEASE_PIPELINE.md, tests, and released 2611.2.1.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4504b3a1` | feat: add opt-in pipeline release mode |
+| `de5056e2` | chore: bump version to 2611.2.1 |
+
+### Status
+
+[OK] **Completed**
