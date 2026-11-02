@@ -9,8 +9,9 @@ use serde::Serialize;
 
 use crate::adapter;
 use crate::cli::{
-    AdapterAction, AdapterCommand, Cli, Command, EventAction, EventCommand,
+    AdapterAction, AdapterCommand, BumpCommand, Cli, Command, EventAction, EventCommand,
     FinalizeBoundaryCommand, FinalizeTaskCommand, IntegrateAction, IntegrateCommand, OutputMode,
+    SyncCommand,
 };
 use crate::contract::registry::STRUCTURED_JSON_CONTRACT_VERSION;
 use crate::core::finalization::{
@@ -30,7 +31,7 @@ use crate::core::schema::{
 use crate::core::target::TargetLanguage;
 use crate::core::time::ntp::NtpTimeSource;
 use crate::core::time::{LastTimeSource, SystemTimeSource, TimeSource};
-use crate::core::versioning::engine;
+use crate::core::versioning::{ReleaseMode, engine};
 use crate::errors::{
     AdapterError, ConfigError, FinalizationError, IntegrationError, OmvError, StateError,
     TargetError,
@@ -82,6 +83,16 @@ struct BumpExecution {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct BumpPreviewExecution {
+    previous_version: String,
+    version: String,
+    logical_date: String,
+    build_number: u32,
+    time_source: String,
+    plan: crate::sync::PlanSummary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct SyncExecution {
     version: String,
     synced: usize,
@@ -94,11 +105,25 @@ struct CurrentExecution {
     logical_date: String,
     build_number: u32,
     build_policy: String,
+    release_mode: String,
     version_output: String,
     last_time_source: String,
     omv_root: String,
     enabled_targets: usize,
     total_targets: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PipelinePendingExecution {
+    release_mode: String,
+    outcome: String,
+    reason: String,
+    manual_action_required: bool,
+    version: String,
+    provider: Option<String>,
+    boundary: Option<String>,
+    task_id: Option<String>,
+    change_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -288,9 +313,16 @@ pub fn run_with_runtime(cli: Cli, runtime: &AppRuntime<'_>) -> Result<AppOutput,
 
     match cli.command {
         Command::Init => run_init(&omv_root, &catalog, &locale, cli.output_mode),
-        Command::Bump => run_bump(&omv_root, &catalog, runtime, ntp_override, cli.output_mode),
+        Command::Bump(command) => run_bump(
+            &omv_root,
+            &catalog,
+            runtime,
+            ntp_override,
+            cli.output_mode,
+            command,
+        ),
         Command::Plan => run_plan(&omv_root, &catalog, cli.output_mode),
-        Command::Sync(command) => run_sync(&omv_root, &catalog, cli.output_mode, command.check),
+        Command::Sync(command) => run_sync(&omv_root, &catalog, cli.output_mode, command),
         Command::Current => run_current(&omv_root, &catalog, cli.output_mode),
         Command::Event(event_command) => run_event(
             &omv_root,
@@ -345,6 +377,10 @@ fn render_help(catalog: &Catalog) -> String {
         format!("  {}", catalog.t("cli.help.options.version")),
         format!("  {}", catalog.t("cli.help.options.locale")),
         format!("  {}", catalog.t("cli.help.options.no_ntp")),
+        format!("  {}", catalog.t("cli.help.options.expect")),
+        format!("  {}", catalog.t("cli.help.options.now")),
+        format!("  {}", catalog.t("cli.help.options.dry_run")),
+        format!("  {}", catalog.t("cli.help.options.as_release")),
         format!("  {}", catalog.t("cli.help.options.json")),
         format!("  {}", catalog.t("cli.help.options.output")),
         String::new(),
@@ -476,12 +512,50 @@ fn run_bump(
     runtime: &AppRuntime<'_>,
     ntp_override: Option<bool>,
     output_mode: OutputMode,
+    command: BumpCommand,
 ) -> Result<AppOutput, OmvError> {
+    if command.dry_run {
+        let execution = execute_bump_preview(
+            omv_root,
+            runtime.ntp_source,
+            runtime.system_source,
+            ntp_override,
+            command.expect.as_deref(),
+            command.now.as_deref(),
+        )?;
+        let message = match output_mode {
+            OutputMode::Text => {
+                let drift = execution.plan.totals.drift.to_string();
+                let missing = execution.plan.totals.missing.to_string();
+                catalog.tf(
+                    "cli.bump.preview",
+                    &[
+                        "previous",
+                        execution.previous_version.as_str(),
+                        "version",
+                        execution.version.as_str(),
+                        "date",
+                        execution.logical_date.as_str(),
+                        "drift",
+                        drift.as_str(),
+                        "missing",
+                        missing.as_str(),
+                    ],
+                )
+            }
+            OutputMode::Json => render_structured_success("bump", &execution),
+        };
+        return Ok(AppOutput { message });
+    }
+
+    authorize_release_write(omv_root, command.as_release, "bump")?;
     let execution = execute_bump(
         omv_root,
         runtime.ntp_source,
         runtime.system_source,
         ntp_override,
+        command.expect.as_deref(),
+        command.now.as_deref(),
     )?;
 
     let message = match output_mode {
@@ -500,16 +574,34 @@ fn run_bump(
     Ok(AppOutput { message })
 }
 
+fn authorize_release_write(
+    omv_root: &Path,
+    as_release: bool,
+    command: &str,
+) -> Result<(), OmvError> {
+    let release_mode = load_config_if_exists(omv_root)?
+        .map(|config| config.release_mode)
+        .unwrap_or_default();
+    if release_mode == ReleaseMode::Pipeline && !as_release {
+        return Err(crate::errors::CliError::ReleaseModeDenied {
+            command: command.to_owned(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
 fn run_sync(
     omv_root: &Path,
     catalog: &Catalog,
     output_mode: OutputMode,
-    check: bool,
+    command: SyncCommand,
 ) -> Result<AppOutput, OmvError> {
-    if check {
+    if command.check {
         return run_sync_check(omv_root, catalog, output_mode);
     }
 
+    authorize_release_write(omv_root, command.as_release, "sync")?;
     let execution = execute_sync(omv_root)?;
     let synced = execution.synced.to_string();
     let skipped = execution.skipped.to_string();
@@ -613,6 +705,48 @@ fn run_event(
     output_mode: OutputMode,
     command: EventCommand,
 ) -> Result<AppOutput, OmvError> {
+    let release_mode = load_config_if_exists(omv_root)?
+        .map(|config| config.release_mode)
+        .unwrap_or_default();
+    if release_mode == ReleaseMode::Pipeline {
+        let state = storage::state::load_state(omv_root)?;
+        let (command_name, provider, boundary, task_id, change_type) = match &command.action {
+            EventAction::FinalizeTask(finalize_command) => (
+                "event.finalize-task",
+                None,
+                None,
+                finalize_command.task_id.clone(),
+                finalize_command.change_type.clone(),
+            ),
+            EventAction::FinalizeBoundary(finalize_command) => (
+                "event.finalize-boundary",
+                finalize_command.provider.clone(),
+                finalize_command.boundary.clone(),
+                finalize_command.task_id.clone(),
+                finalize_command.change_type.clone(),
+            ),
+        };
+        let execution = PipelinePendingExecution {
+            release_mode: release_mode.as_str().to_owned(),
+            outcome: String::from("pending"),
+            reason: String::from("release-pipeline-owns-version"),
+            manual_action_required: true,
+            version: state.last_issued_version.clone(),
+            provider,
+            boundary,
+            task_id,
+            change_type,
+        };
+        let message = match output_mode {
+            OutputMode::Text => catalog.tf(
+                "cli.event.pipeline_pending",
+                &["version", execution.version.as_str()],
+            ),
+            OutputMode::Json => render_structured_success(command_name, &execution),
+        };
+        return Ok(AppOutput { message });
+    }
+
     let message = match command.action {
         EventAction::FinalizeTask(finalize_command) => {
             let execution = execute_finalize_task(
@@ -2549,7 +2683,14 @@ fn execute_finalize_task(
     upsert_finalization_record(&mut finalizations, pending_record);
     storage::finalizations::save_finalizations(omv_root, &finalizations)?;
 
-    let bump = execute_bump(omv_root, ntp_source, system_source, ntp_override)?;
+    let bump = execute_bump(
+        omv_root,
+        ntp_source,
+        system_source,
+        ntp_override,
+        None,
+        None,
+    )?;
 
     let completed_record = OmvFinalizationRecord {
         task_id: request.task_id.clone(),
@@ -3023,6 +3164,7 @@ fn execute_current(omv_root: &Path) -> Result<CurrentExecution, OmvError> {
         logical_date: state.logical_date,
         build_number: state.build_number,
         build_policy: config.build_policy.as_str().to_owned(),
+        release_mode: config.release_mode.as_str().to_owned(),
         version_output: config.version_output.as_str().to_owned(),
         last_time_source: state.last_time_source.as_str().to_owned(),
         omv_root: omv_root.display().to_string(),
@@ -3031,21 +3173,59 @@ fn execute_current(omv_root: &Path) -> Result<CurrentExecution, OmvError> {
     })
 }
 
+fn effective_config(omv_root: &Path, ntp_override: Option<bool>) -> Result<OmvConfig, OmvError> {
+    let mut config = storage::config::load_config(omv_root)?;
+    if let Some(enabled) = ntp_override {
+        config.ntp_enabled = enabled;
+    }
+    Ok(config)
+}
+
+fn resolve_bump_date(
+    config: &OmvConfig,
+    state: &OmvState,
+    ntp_source: &dyn TimeSource,
+    system_source: &dyn TimeSource,
+    now: Option<&str>,
+) -> Result<crate::core::time::ValidatedDate, OmvError> {
+    if let Some(raw) = now {
+        return Ok(crate::core::time::ValidatedDate {
+            date: crate::core::date::LogicalDate::parse_iso(raw)?,
+            source: LastTimeSource::ManualConfirmed,
+        });
+    }
+
+    crate::core::time::validate_current_date(config, state, ntp_source, system_source)
+}
+
+fn ensure_expected_version(state: &OmvState, expected: Option<&str>) -> Result<(), OmvError> {
+    if let Some(expected) = expected
+        && state.last_issued_version != expected
+    {
+        return Err(StateError::ExpectationMismatch {
+            expected: expected.to_owned(),
+            actual: state.last_issued_version.clone(),
+        }
+        .into());
+    }
+
+    Ok(())
+}
+
 fn execute_bump(
     omv_root: &Path,
     ntp_source: &dyn TimeSource,
     system_source: &dyn TimeSource,
     ntp_override: Option<bool>,
+    expect: Option<&str>,
+    now: Option<&str>,
 ) -> Result<BumpExecution, OmvError> {
-    let mut config = storage::config::load_config(omv_root)?;
-    if let Some(enabled) = ntp_override {
-        config.ntp_enabled = enabled;
-    }
+    let config = effective_config(omv_root, ntp_override)?;
     let state = storage::state::load_state(omv_root)?;
+    ensure_expected_version(&state, expect)?;
     let previous_version = state.last_issued_version.clone();
 
-    let validated =
-        crate::core::time::validate_current_date(&config, &state, ntp_source, system_source)?;
+    let validated = resolve_bump_date(&config, &state, ntp_source, system_source, now)?;
     let next = engine::compute_next_version(&config, &state, validated.date)?;
 
     let mut next_state = state;
@@ -3068,6 +3248,35 @@ fn execute_bump(
     })
 }
 
+fn execute_bump_preview(
+    omv_root: &Path,
+    ntp_source: &dyn TimeSource,
+    system_source: &dyn TimeSource,
+    ntp_override: Option<bool>,
+    expect: Option<&str>,
+    now: Option<&str>,
+) -> Result<BumpPreviewExecution, OmvError> {
+    let config = effective_config(omv_root, ntp_override)?;
+    let state = storage::state::load_state(omv_root)?;
+    ensure_expected_version(&state, expect)?;
+    let previous_version = state.last_issued_version.clone();
+
+    let validated = resolve_bump_date(&config, &state, ntp_source, system_source, now)?;
+    let next = engine::compute_next_version(&config, &state, validated.date)?;
+    let targets = load_targets_if_exists(omv_root)?;
+    let project_root = omv_root.parent().unwrap_or(omv_root);
+    let plan = crate::sync::plan_all_targets(project_root, &targets, &next.value);
+
+    Ok(BumpPreviewExecution {
+        previous_version,
+        version: next.value,
+        logical_date: next.logical_date.to_iso_string(),
+        build_number: next.build_number,
+        time_source: validated.source.as_str().to_owned(),
+        plan,
+    })
+}
+
 fn execute_sync(omv_root: &Path) -> Result<SyncExecution, OmvError> {
     let state = storage::state::load_state(omv_root)?;
     let targets = load_targets_if_exists(omv_root)?;
@@ -3075,7 +3284,10 @@ fn execute_sync(omv_root: &Path) -> Result<SyncExecution, OmvError> {
 
     let summary =
         crate::sync::sync_all_targets(project_root, &targets, &state.last_issued_version)?;
-    crate::sync::skills::generate_skills(omv_root, &state.last_issued_version)?;
+    let release_mode = load_config_if_exists(omv_root)?
+        .map(|config| config.release_mode)
+        .unwrap_or_default();
+    crate::sync::skills::generate_skills(omv_root, &state.last_issued_version, release_mode)?;
     adapter::ensure_canonical_artifacts(omv_root)?;
 
     Ok(SyncExecution {
@@ -3380,8 +3592,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::cli::{
-        AdapterAction, AdapterCommand, Cli, Command, FinalizeBoundaryCommand, FinalizeTaskCommand,
-        OutputMode,
+        AdapterAction, AdapterCommand, BumpCommand, Cli, Command, EventAction, EventCommand,
+        FinalizeBoundaryCommand, FinalizeTaskCommand, OutputMode, SyncCommand,
     };
     use crate::core::date::LogicalDate;
     use crate::core::finalization::FinalizationOutcome;
@@ -3391,16 +3603,16 @@ mod tests {
     };
     use crate::core::target::{PreProjectStrategy, TargetLanguage};
     use crate::core::time::{LastTimeSource, TimeSource};
-    use crate::core::versioning::BuildPolicy;
-    use crate::errors::{NtpError, OmvError, StateError};
+    use crate::core::versioning::{BuildPolicy, ReleaseMode};
+    use crate::errors::{CliError, NtpError, OmvError, StateError};
     use crate::storage;
     use crate::ui::state::draft::InitDraft;
 
     use super::{
-        AppRuntime, execute_bump, execute_current, execute_finalize_boundary,
-        execute_finalize_task, execute_sync, merge_targets_from_draft, persist_init_state,
-        render_help, render_structured_error, render_version, resolve_finalize_boundary_task_id,
-        resolve_locale_for_root, run_adapter, run_with_runtime,
+        AppRuntime, authorize_release_write, execute_bump, execute_bump_preview, execute_current,
+        execute_finalize_boundary, execute_finalize_task, execute_sync, merge_targets_from_draft,
+        persist_init_state, render_help, render_structured_error, render_version,
+        resolve_finalize_boundary_task_id, resolve_locale_for_root, run_adapter, run_with_runtime,
     };
 
     static CWD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -3649,7 +3861,8 @@ mod tests {
             date: LogicalDate::parse_iso("2026-04-12").expect("date should parse"),
         };
 
-        let execution = execute_bump(&omv_root, &ntp, &system, None).expect("bump should succeed");
+        let execution =
+            execute_bump(&omv_root, &ntp, &system, None, None, None).expect("bump should succeed");
         assert_eq!(execution.version, "2604.13.2");
         assert_eq!(execution.time_source, LastTimeSource::Ntp.as_str());
 
@@ -3685,7 +3898,8 @@ mod tests {
             date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
         };
 
-        let err = execute_bump(&omv_root, &ntp, &system, None).expect_err("future date must fail");
+        let err = execute_bump(&omv_root, &ntp, &system, None, None, None)
+            .expect_err("future date must fail");
         assert!(matches!(err, OmvError::Time(_)));
 
         cleanup_omv_root(&omv_root);
@@ -3729,11 +3943,487 @@ mod tests {
             date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
         };
 
-        let execution = execute_bump(&omv_root, &ntp, &system, Some(false))
+        let execution = execute_bump(&omv_root, &ntp, &system, Some(false), None, None)
             .expect("bump should succeed with no-ntp override");
         assert_eq!(execution.time_source, LastTimeSource::System.as_str());
 
         cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_bump_preview_does_not_write_state() {
+        let omv_root = temp_omv_root("bump-preview");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-12").expect("date should parse"),
+        };
+
+        let preview =
+            execute_bump_preview(&omv_root, &ntp, &system, None, None, Some("2026-04-13"))
+                .expect("preview should succeed");
+        assert_eq!(preview.version, "2604.13.2");
+        assert_eq!(
+            preview.time_source,
+            LastTimeSource::ManualConfirmed.as_str()
+        );
+        assert_eq!(preview.plan.version, "2604.13.2");
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.logical_date, "2026-04-13");
+        assert_eq!(state.build_number, 1);
+        assert_eq!(state.last_issued_version, "2604.13.1");
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_bump_expect_mismatch_leaves_state_unchanged() {
+        let omv_root = temp_omv_root("bump-expect-mismatch");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+
+        let err = execute_bump(&omv_root, &ntp, &system, None, Some("2604.13.0"), None)
+            .expect_err("stale expected version must fail");
+        match err {
+            OmvError::State(StateError::ExpectationMismatch { expected, actual }) => {
+                assert_eq!(expected, "2604.13.0");
+                assert_eq!(actual, "2604.13.1");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.last_issued_version, "2604.13.1");
+        assert_eq!(state.build_number, 1);
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_bump_now_uses_manual_confirmed_and_resets_day() {
+        let omv_root = temp_omv_root("bump-now");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 7,
+                last_issued_version: "2604.13.7".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-20").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-20").expect("date should parse"),
+        };
+
+        let execution = execute_bump(&omv_root, &ntp, &system, None, None, Some("2026-04-14"))
+            .expect("now override should succeed");
+        assert_eq!(execution.version, "2604.14.1");
+        assert_eq!(execution.build_number, 1);
+        assert_eq!(
+            execution.time_source,
+            LastTimeSource::ManualConfirmed.as_str()
+        );
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.logical_date, "2026-04-14");
+        assert_eq!(state.build_number, 1);
+        assert_eq!(state.last_issued_version, "2604.14.1");
+        assert_eq!(state.last_time_source, LastTimeSource::ManualConfirmed);
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn execute_current_reports_release_mode() {
+        let omv_root = temp_omv_root("current-release-mode");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+        storage::state::save_state(&omv_root, &OmvState::default()).expect("state should save");
+
+        let current = execute_current(&omv_root).expect("current should work");
+        assert_eq!(current.release_mode, "pipeline");
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn authorize_release_write_enforces_pipeline_mode() {
+        let omv_root = temp_omv_root("authorize-release");
+        storage::config::save_config(&omv_root, &OmvConfig::default()).expect("config should save");
+        authorize_release_write(&omv_root, false, "bump").expect("local mode should allow writes");
+
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        let err = authorize_release_write(&omv_root, false, "bump")
+            .expect_err("pipeline mode must deny unauthorized writes");
+        assert!(matches!(
+            err,
+            OmvError::Cli(CliError::ReleaseModeDenied { .. })
+        ));
+        authorize_release_write(&omv_root, true, "bump")
+            .expect("pipeline mode should allow authorized writes");
+
+        cleanup_omv_root(&omv_root);
+    }
+
+    #[test]
+    fn pipeline_event_returns_pending_without_writing() {
+        let root = temp_project_root("pipeline-event-pending");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 2,
+                last_issued_version: "2604.13.2".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            let output = run_with_runtime(
+                Cli {
+                    command: Command::Event(EventCommand {
+                        action: EventAction::FinalizeBoundary(FinalizeBoundaryCommand {
+                            provider: Some("phronia".to_owned()),
+                            boundary: Some("finish-work".to_owned()),
+                            task_id: Some("task-1".to_owned()),
+                            change_type: Some("feature".to_owned()),
+                        }),
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("pipeline finalize should return pending");
+            assert!(output.message.contains("\"outcome\": \"pending\""));
+            assert!(
+                output
+                    .message
+                    .contains("\"reason\": \"release-pipeline-owns-version\"")
+            );
+            assert!(output.message.contains("\"manual_action_required\": true"));
+
+            let output = run_with_runtime(
+                Cli {
+                    command: Command::Event(EventCommand {
+                        action: EventAction::FinalizeTask(FinalizeTaskCommand {
+                            task_id: Some("task-2".to_owned()),
+                            change_type: Some("bugfix".to_owned()),
+                            ..FinalizeTaskCommand::default()
+                        }),
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("pipeline finalize-task should return pending");
+            assert!(output.message.contains("\"outcome\": \"pending\""));
+            assert!(
+                output
+                    .message
+                    .contains("\"reason\": \"release-pipeline-owns-version\"")
+            );
+        });
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.last_issued_version, "2604.13.2");
+        assert_eq!(state.build_number, 2);
+        assert!(!omv_root.join("finalizations.toml").exists());
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn run_with_runtime_pipeline_requires_as_release() {
+        let root = temp_project_root("pipeline-bump-auth");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+        storage::state::save_state(
+            &omv_root,
+            &OmvState {
+                logical_date: "2026-04-13".to_owned(),
+                build_number: 1,
+                last_issued_version: "2604.13.1".to_owned(),
+                ..OmvState::default()
+            },
+        )
+        .expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            let preview = run_with_runtime(
+                Cli {
+                    command: Command::Bump(BumpCommand {
+                        now: Some("2026-04-13".to_owned()),
+                        dry_run: true,
+                        ..BumpCommand::default()
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("pipeline dry-run should not require authorization");
+            assert!(preview.message.contains("\"version\": \"2604.13.2\""));
+
+            let err = run_with_runtime(
+                Cli {
+                    command: Command::Bump(BumpCommand {
+                        now: Some("2026-04-13".to_owned()),
+                        ..BumpCommand::default()
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect_err("pipeline bump without authorization must fail");
+            assert!(matches!(
+                err,
+                OmvError::Cli(CliError::ReleaseModeDenied { .. })
+            ));
+
+            let output = run_with_runtime(
+                Cli {
+                    command: Command::Bump(BumpCommand {
+                        now: Some("2026-04-13".to_owned()),
+                        as_release: true,
+                        ..BumpCommand::default()
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("authorized pipeline bump should succeed");
+            assert!(output.message.contains("\"version\": \"2604.13.2\""));
+        });
+
+        let state = storage::state::load_state(&omv_root).expect("state should load");
+        assert_eq!(state.last_issued_version, "2604.13.2");
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn run_with_runtime_pipeline_guards_sync_writes() {
+        let root = temp_project_root("pipeline-sync-auth");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+        storage::state::save_state(&omv_root, &OmvState::default()).expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            let err = run_with_runtime(
+                Cli {
+                    command: Command::Sync(SyncCommand {
+                        check: false,
+                        as_release: false,
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect_err("pipeline sync write without authorization must fail");
+            assert!(matches!(
+                err,
+                OmvError::Cli(CliError::ReleaseModeDenied { .. })
+            ));
+
+            run_with_runtime(
+                Cli {
+                    command: Command::Sync(SyncCommand {
+                        check: true,
+                        as_release: false,
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("sync --check must remain available in pipeline mode");
+
+            run_with_runtime(
+                Cli {
+                    command: Command::Sync(SyncCommand {
+                        check: false,
+                        as_release: true,
+                    }),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("authorized pipeline sync should succeed");
+        });
+
+        cleanup_project_root(&root);
+    }
+
+    #[test]
+    fn run_with_runtime_sync_still_works_without_config_file() {
+        let root = temp_project_root("sync-without-config");
+        let omv_root = root.join(".omv");
+        fs::create_dir_all(&omv_root).expect("omv root should exist");
+        storage::state::save_state(&omv_root, &OmvState::default()).expect("state should save");
+
+        let ntp = FixedSource {
+            source: LastTimeSource::Ntp,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let system = FixedSource {
+            source: LastTimeSource::System,
+            date: LogicalDate::parse_iso("2026-04-13").expect("date should parse"),
+        };
+        let runtime = AppRuntime {
+            ntp_source: &ntp,
+            system_source: &system,
+        };
+
+        with_cwd(&root, || {
+            run_with_runtime(
+                Cli {
+                    command: Command::Sync(SyncCommand::default()),
+                    locale_override: Some("en-US".to_owned()),
+                    ntp_override: None,
+                    output_mode: OutputMode::Json,
+                },
+                &runtime,
+            )
+            .expect("sync must stay compatible when config.toml is absent");
+        });
+
+        cleanup_project_root(&root);
     }
 
     #[test]
@@ -3769,7 +4459,7 @@ mod tests {
         with_cwd(&root, || {
             let output = run_with_runtime(
                 Cli {
-                    command: Command::Bump,
+                    command: Command::Bump(BumpCommand::default()),
                     locale_override: Some("en-US".to_owned()),
                     ntp_override: None,
                     output_mode: OutputMode::Json,
@@ -3821,7 +4511,7 @@ mod tests {
         with_cwd(&root, || {
             let output = run_with_runtime(
                 Cli {
-                    command: Command::Bump,
+                    command: Command::Bump(BumpCommand::default()),
                     locale_override: Some("en-US".to_owned()),
                     ntp_override: None,
                     output_mode: OutputMode::Json,

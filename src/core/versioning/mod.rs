@@ -1,6 +1,30 @@
 pub mod engine;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReleaseMode {
+    #[default]
+    Local,
+    Pipeline,
+}
+
+impl ReleaseMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Pipeline => "pipeline",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "local" => Some(Self::Local),
+            "pipeline" => Some(Self::Pipeline),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BuildPolicy {
     #[default]
     DailyReset,

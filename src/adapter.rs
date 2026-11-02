@@ -8,6 +8,7 @@ use crate::core::adapter::{
     AdapterInstallMode, AdapterKind, AdapterTargetMode, AgentAdapter, SpecAdapter,
 };
 use crate::core::schema::{OmvAdapterInstallation, OmvAdapterTarget, OmvAdapters};
+use crate::core::versioning::ReleaseMode;
 use crate::errors::{AdapterError, OmvError};
 use crate::storage;
 
@@ -83,9 +84,13 @@ struct CanonicalTarget {
 
 pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
     let ai_root = omv_root.join(AI_DIR);
+    let release_mode = storage::config::load_config(omv_root)
+        .map(|config| config.release_mode)
+        .unwrap_or_default();
     let contract = json!({
         "contract_version": CONTRACT_VERSION,
         "truth_source": ".omv/state.toml",
+        "release_mode": release_mode.as_str(),
         "commands": {
             "current": {
                 "read": ["omv current --json", "omv current --output json"]
@@ -234,6 +239,29 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
             .as_bytes(),
     )?;
 
+    let version_write_line = match release_mode {
+        ReleaseMode::Local => "- Change the managed version with `omv bump --json`.",
+        ReleaseMode::Pipeline => {
+            "- Do not run `omv bump` or `omv sync` locally; the release pipeline owns version writes."
+        }
+    };
+    let finalize_line = match release_mode {
+        ReleaseMode::Local => {
+            "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it."
+        }
+        ReleaseMode::Pipeline => {
+            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version, so do not expect a local bump."
+        }
+    };
+    let lockfile_line = match release_mode {
+        ReleaseMode::Local => {
+            "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together."
+        }
+        ReleaseMode::Pipeline => {
+            "- The release job must run the project build command after bumping and commit the OMV-generated files together."
+        }
+    };
+
     let instructions = [
         "# OMV Versioning Instructions",
         "",
@@ -245,9 +273,9 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
         "- Inspect host integration provider/capability status with `omv integrate status --json` when that command is available.",
         "- Apply selected or pending host integration capabilities with `omv integrate apply --json` when that command is available.",
         "- Treat `.trellis` and `.phronia` as mutually exclusive OMV projection targets. When both host trees exist, resolve the conflict (remove or rename one framework) before running `omv integrate apply` or `omv adapter refresh`; OMV does not choose, rewrite records, or delete framework files automatically.",
-        "- Change the managed version with `omv bump --json`.",
-        "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it.",
-        "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, and generated version files) together.",
+        version_write_line,
+        finalize_line,
+        lockfile_line,
         "- `.omv/targets.toml` kind-based targets can manage text scalars, regex replacements, Markdown managed blocks, YAML scalars, C header macros, and Cargo workspaces; update OMV if a configured kind is reported as unsupported.",
         "- Do not edit `Cargo.toml`, `CMakeLists.txt`, `pyproject.toml`, `go.mod`, or other native manifest versions directly.",
         "- Before release-sensitive edits, run `omv plan --json`; before committing or publishing, run `omv sync --check --json`.",
@@ -260,7 +288,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
     .join("\n");
     storage::atomic::write_atomically(&ai_root.join("instructions.md"), instructions.as_bytes())?;
 
-    for (path, content) in canonical_sources() {
+    for (path, content) in canonical_sources(release_mode) {
         let target = ai_root.join(path);
         storage::atomic::write_atomically(&target, content.as_bytes())?;
     }
@@ -906,8 +934,8 @@ fn managed_block_name(kind: AdapterKind, name: &str, source_rel: &str) -> String
     )
 }
 
-fn canonical_sources() -> Vec<(&'static str, String)> {
-    vec![
+fn canonical_sources(release_mode: ReleaseMode) -> Vec<(&'static str, String)> {
+    let sources = vec![
         (
             "adapters/claude/CLAUDE.md",
             [
@@ -1120,7 +1148,60 @@ fn canonical_sources() -> Vec<(&'static str, String)> {
             ]
             .join("\n"),
         ),
-    ]
+    ];
+
+    if release_mode == ReleaseMode::Pipeline {
+        sources
+            .into_iter()
+            .map(|(path, content)| (path, pipeline_safe_source(content)))
+            .collect()
+    } else {
+        sources
+    }
+}
+
+fn pipeline_safe_source(content: String) -> String {
+    content
+        .replace(
+            "and `omv bump --json` to update it.",
+            "and the release pipeline assigns versions (do not run `omv bump` locally).",
+        )
+        .replace(
+            "6. Use `omv bump --json` to mutate version truth.",
+            "6. Do not run `omv bump` locally; the release pipeline assigns versions.",
+        )
+        .replace(
+            "- Use `omv bump --json` to advance the managed version.",
+            "- Do not run `omv bump` locally; the release pipeline assigns versions.",
+        )
+        .replace(
+            "- Update version truth: `omv bump --json`",
+            "- Version writes are owned by the release pipeline; do not run `omv bump` locally",
+        )
+        .replace(
+            "- Workflows MUST update managed version via `omv bump --json`.",
+            "- Workflows MUST NOT update the managed version locally; the release pipeline owns it.",
+        )
+        .replace(
+            "- Use `omv bump --json` for writes.",
+            "- Do not run `omv bump` or `omv sync` locally; the release pipeline owns writes.",
+        )
+        .replace(
+            "- If the Trellis finalize-boundary capability is installed: for Trellis v0.5+ the finalize-boundary bump happens at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/trellis:finish-work` (whose OMV block is verification-only). For Trellis v0.4.x, `/trellis:finish-work` remains the bump trigger (legacy behavior). Supply an explicit `change_type`; do not infer it.",
+            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
+        )
+        .replace(
+            "- The OMV finalize-boundary bump happens at the Phronia Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/phronia:finish-work` (whose OMV block is verification-only). Supply an explicit `change_type`; do not infer it.",
+            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
+        )
+        .replace(
+            "- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ and for Phronia this runs at the commit-confirmation boundary, not at the framework finish-work command (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.",
+            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
+        )
+        .replace(
+            "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, generated version files) together.",
+            "- The release job must run the project build command after bumping and commit the OMV-generated files together.",
+        )
 }
 
 #[cfg(test)]
@@ -1130,7 +1211,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::core::adapter::{AdapterInstallMode, AdapterKind, AdapterTargetMode};
-    use crate::core::schema::{OmvAdapterInstallation, OmvAdapters};
+    use crate::core::schema::{OmvAdapterInstallation, OmvAdapters, OmvConfig};
+    use crate::core::versioning::ReleaseMode;
     use crate::storage;
 
     use super::{
@@ -1163,6 +1245,37 @@ mod tests {
             .expect("codex skill source should exist");
         assert!(codex_skill.starts_with("---\n"));
         assert!(codex_skill.contains("<!-- OMV-MANAGED-FILE"));
+
+        cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn canonical_artifacts_pipeline_mode_marks_bump_as_release_only() {
+        let omv_root = temp_omv_root("canonical-pipeline");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let contract =
+            fs::read_to_string(omv_root.join("ai/contract.json")).expect("contract should exist");
+        assert!(contract.contains("\"release_mode\": \"pipeline\""));
+
+        let instructions = fs::read_to_string(omv_root.join("ai/instructions.md"))
+            .expect("instructions should exist");
+        assert!(instructions.contains("release pipeline owns version writes"));
+        assert!(!instructions.contains("- Change the managed version with `omv bump --json`."));
+
+        let codex_agents = fs::read_to_string(omv_root.join("ai/adapters/codex/AGENTS.md"))
+            .expect("codex agents source should exist");
+        assert!(codex_agents.contains("release pipeline assigns versions"));
+        assert!(!codex_agents.contains("Use `omv bump --json` to advance the managed version."));
 
         cleanup_root(&omv_root);
     }

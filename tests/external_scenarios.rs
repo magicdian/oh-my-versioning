@@ -5,7 +5,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use omv::app::{AppRuntime, run_with_runtime};
-use omv::cli::{Cli, Command as OmvCommand, OutputMode};
+use omv::cli::{BumpCommand, Cli, Command as OmvCommand, OutputMode};
 use omv::core::date::LogicalDate;
 use omv::core::time::{LastTimeSource, TimeSource};
 use omv::errors::OmvError;
@@ -596,7 +596,7 @@ fn run_bump_with_date(run_root: &Path, date: &str, expected_version: &str) -> Re
     let output = with_cwd(run_root, || {
         run_with_runtime(
             Cli {
-                command: OmvCommand::Bump,
+                command: OmvCommand::Bump(BumpCommand::default()),
                 locale_override: Some("en-US".to_owned()),
                 ntp_override: None,
                 output_mode: OutputMode::Json,

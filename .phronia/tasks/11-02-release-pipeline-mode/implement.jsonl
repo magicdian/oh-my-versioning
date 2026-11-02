@@ -1,0 +1,5 @@
+{"file": ".phronia/spec/backend/error-handling.md", "reason": "Typed errors, structured JSON codes, and CLI exit behavior"}
+{"file": ".phronia/spec/backend/quality-guidelines.md", "reason": "Testing bar and review checklist"}
+{"file": ".phronia/spec/backend/localization-guidelines.md", "reason": "i18n key parity and user-facing copy rules"}
+{"file": ".phronia/spec/backend/directory-structure.md", "reason": "Module boundaries for CLI/app/core/storage changes"}
+{"file": "docs/OMV_CONTRACT_ARCHITECTURE.md", "reason": "Trigger/plan/apply architecture and CI trigger boundary"}

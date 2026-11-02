@@ -20,7 +20,7 @@ impl OutputMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Init,
-    Bump,
+    Bump(BumpCommand),
     Plan,
     Sync(SyncCommand),
     Current,
@@ -32,8 +32,17 @@ pub enum Command {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BumpCommand {
+    pub expect: Option<String>,
+    pub now: Option<String>,
+    pub dry_run: bool,
+    pub as_release: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SyncCommand {
     pub check: bool,
+    pub as_release: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,7 +170,7 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "init" => command = Command::Init,
-            "bump" => command = Command::Bump,
+            "bump" => command = Command::Bump(parse_bump_command(&mut args)?),
             "plan" => command = Command::Plan,
             "sync" => command = Command::Sync(parse_sync_command(&mut args)?),
             "current" => command = Command::Current,
@@ -183,12 +192,40 @@ pub fn parse_args(args: Vec<String>) -> Result<Cli, OmvError> {
     })
 }
 
+fn parse_bump_command(args: &mut std::vec::IntoIter<String>) -> Result<BumpCommand, OmvError> {
+    let mut command = BumpCommand::default();
+
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--expect" => {
+                command.expect = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingOptionValue(String::from("--expect")))?,
+                );
+            }
+            "--now" => {
+                command.now = Some(
+                    args.next()
+                        .ok_or_else(|| CliError::MissingOptionValue(String::from("--now")))?,
+                );
+            }
+            "--dry-run" => command.dry_run = true,
+            "--as-release" => command.as_release = true,
+            other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
+            other => return Err(CliError::UnknownCommand(other.to_owned()).into()),
+        }
+    }
+
+    Ok(command)
+}
+
 fn parse_sync_command(args: &mut std::vec::IntoIter<String>) -> Result<SyncCommand, OmvError> {
     let mut command = SyncCommand::default();
 
     for arg in args.by_ref() {
         match arg.as_str() {
             "--check" => command.check = true,
+            "--as-release" => command.as_release = true,
             other if other.starts_with("--") => return Err(CliError::UnknownOption(arg).into()),
             other => return Err(CliError::UnknownCommand(other.to_owned()).into()),
         }
@@ -385,7 +422,7 @@ fn parse_integrate_command(
 #[cfg(test)]
 mod tests {
     use crate::cli::{
-        AdapterAction, Command, EventAction, IntegrateAction, OutputMode, parse_args,
+        AdapterAction, BumpCommand, Command, EventAction, IntegrateAction, OutputMode, parse_args,
     };
     use crate::errors::{CliError, OmvError};
 
@@ -427,8 +464,52 @@ mod tests {
     fn parses_no_ntp_flag() {
         let cli = parse_args(vec!["bump".to_owned(), "--no-ntp".to_owned()])
             .expect("no-ntp flag should parse");
-        assert_eq!(cli.command, Command::Bump);
+        assert_eq!(cli.command, Command::Bump(BumpCommand::default()));
         assert_eq!(cli.ntp_override, Some(false));
+    }
+
+    #[test]
+    fn parses_bump_release_flags() {
+        let cli = parse_args(vec![
+            "bump".to_owned(),
+            "--expect".to_owned(),
+            "2611.2.1".to_owned(),
+            "--now".to_owned(),
+            "2026-11-02".to_owned(),
+            "--dry-run".to_owned(),
+            "--as-release".to_owned(),
+        ])
+        .expect("bump release flags should parse");
+
+        match cli.command {
+            Command::Bump(command) => {
+                assert_eq!(command.expect.as_deref(), Some("2611.2.1"));
+                assert_eq!(command.now.as_deref(), Some("2026-11-02"));
+                assert!(command.dry_run);
+                assert!(command.as_release);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_bump_expect_value_missing() {
+        let err = parse_args(vec!["bump".to_owned(), "--expect".to_owned()])
+            .expect_err("missing expect value must fail");
+        match err {
+            OmvError::Cli(CliError::MissingOptionValue(option)) => assert_eq!(option, "--expect"),
+            other => panic!("unexpected error variant: {other}"),
+        }
+    }
+
+    #[test]
+    fn parses_sync_as_release() {
+        let cli = parse_args(vec!["sync".to_owned(), "--as-release".to_owned()])
+            .expect("sync as-release should parse");
+        match cli.command {
+            Command::Sync(command) => assert!(command.as_release),
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 
     #[test]

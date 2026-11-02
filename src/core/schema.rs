@@ -10,7 +10,7 @@ use super::target::{
     PreProjectStrategy, ProjectProfile, TargetKind, TargetLanguage, TargetMode,
 };
 use super::time::LastTimeSource;
-use super::versioning::{BuildPolicy, VersionOutput};
+use super::versioning::{BuildPolicy, ReleaseMode, VersionOutput};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OmvConfig {
@@ -18,6 +18,7 @@ pub struct OmvConfig {
     pub locale: OperatorLocale,
     pub timezone: String,
     pub project_profile: ProjectProfile,
+    pub release_mode: ReleaseMode,
     pub version_output: VersionOutput,
     pub build_policy: BuildPolicy,
     pub ntp_enabled: bool,
@@ -30,6 +31,7 @@ impl Default for OmvConfig {
             locale: OperatorLocale::EnUs,
             timezone: String::from("UTC+0"),
             project_profile: ProjectProfile::Personal,
+            release_mode: ReleaseMode::Local,
             version_output: VersionOutput::DateTriplet,
             build_policy: BuildPolicy::DailyReset,
             ntp_enabled: true,
