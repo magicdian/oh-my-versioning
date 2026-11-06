@@ -15,12 +15,24 @@
   "branch": "dev",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
   "notes": "",
-  "meta": {}
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
+      "commit": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/omv-config-capability-gate-2026-11-06T04-31-59-286Z.log",
+      "updated_at": "2026-11-06T04:32:00.915Z"
+    }
+  }
 }
