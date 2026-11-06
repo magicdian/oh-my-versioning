@@ -125,11 +125,10 @@ pub enum GateOutcome {
 ///
 /// `declared` is the raw value of `requires_omv`, if the file carries one. An
 /// absent declaration is treated as compatible so every config written before
-/// this key existed keeps loading. `field` names the config key whose semantics
-/// forced the requirement, purely for the error message.
+/// this key existed keeps loading. `culprit` names the key and value responsible
+/// for the requirement, used only to make the error actionable.
 pub fn gate_declared_requirement(
-    field: &'static str,
-    value: Option<&str>,
+    culprit: Option<(&'static str, &str)>,
     declared: Option<&str>,
 ) -> GateOutcome {
     let Some(required) = declared.map(str::trim).filter(|raw| !raw.is_empty()) else {
@@ -137,9 +136,10 @@ pub fn gate_declared_requirement(
     };
 
     if capability::requires_upgrade(OMV_VERSION, required) {
+        let (field, value) = culprit.unwrap_or((REQUIRE_RELEASE_KEY, ""));
         return GateOutcome::UpgradeRequired(capability::unsupported(
             field,
-            value,
+            Some(value),
             required,
             OMV_VERSION,
         ));
@@ -148,22 +148,47 @@ pub fn gate_declared_requirement(
     GateOutcome::Supported
 }
 
+/// Config key declaring the minimum `omv` release that can honour the file.
+pub const REQUIRE_RELEASE_KEY: &str = "requires_omv";
+
 /// The `requires_omv` value a project should declare for its current config.
 ///
 /// Reads the strictest requirement across every gated field. A config file is
 /// read as a whole -- a release either understands all of it or none of it -- so
-/// the hardest requirement is the only one a reader needs. Adding a new gated
-/// field means adding one line below; forgetting it makes the declaration *less*
-/// strict than reality, which `load_config` catches by comparing the file's
-/// declaration against this same function.
+/// the hardest requirement is the only one a reader needs.
+///
+/// The field list is maintained by hand, so a newly gated field can be missed.
+/// `load_config` compares the written declaration against this function to catch
+/// that, but only for fields this binary knows about: a field gated by a *future*
+/// release is invisible until that release ships.
 pub fn required_omv_for(config: &OmvConfig) -> &'static str {
-    let strictest = capability::strongest_requirement([
-        config.release_mode.minimum_omv(),
-        config.build_policy.minimum_omv(),
-        config.version_output.minimum_omv(),
-    ]);
+    let strictest = capability::strongest_requirement(
+        gated_values(config).map(|(_, _, requirement)| requirement),
+    );
 
     strictest.unwrap_or(capability::BASELINE_VERSION)
+}
+
+/// Every gated `(key, value, minimum_omv)` triple in a config.
+fn gated_values(config: &OmvConfig) -> impl Iterator<Item = (&'static str, &'static str, Option<&'static str>)> {
+    [
+        (
+            "release_mode",
+            config.release_mode.as_str(),
+            config.release_mode.minimum_omv(),
+        ),
+        (
+            "build_policy",
+            config.build_policy.as_str(),
+            config.build_policy.minimum_omv(),
+        ),
+        (
+            "version_output",
+            config.version_output.as_str(),
+            config.version_output.minimum_omv(),
+        ),
+    ]
+    .into_iter()
 }
 
 #[cfg(test)]
@@ -175,7 +200,7 @@ mod tests {
     #[test]
     fn absent_declaration_keeps_legacy_configs_readable() {
         assert_eq!(
-            gate_declared_requirement("release_mode", Some("pipeline"), None),
+            gate_declared_requirement(Some(("release_mode", "pipeline")), None),
             GateOutcome::Supported
         );
     }
@@ -183,7 +208,7 @@ mod tests {
     #[test]
     fn blank_declaration_counts_as_absent() {
         assert_eq!(
-            gate_declared_requirement("release_mode", None, Some("   ")),
+            gate_declared_requirement(None, Some("   ")),
             GateOutcome::Supported
         );
     }
@@ -192,18 +217,18 @@ mod tests {
     fn requirement_at_or_below_this_binary_passes() {
         // This binary is 2611.2.1; requiring that or anything older is fine.
         assert_eq!(
-            gate_declared_requirement("release_mode", None, Some(super::OMV_VERSION)),
+            gate_declared_requirement(None, Some(super::OMV_VERSION)),
             GateOutcome::Supported
         );
         assert_eq!(
-            gate_declared_requirement("release_mode", None, Some("2610.27.2")),
+            gate_declared_requirement(None, Some("2610.27.2")),
             GateOutcome::Supported
         );
     }
 
     #[test]
     fn requirement_above_this_binary_asks_for_an_upgrade() {
-        match gate_declared_requirement("release_mode", Some("pipeline"), Some("9999.1.1")) {
+        match gate_declared_requirement(Some(("release_mode", "pipeline")), Some("9999.1.1")) {
             GateOutcome::UpgradeRequired(detail) => {
                 assert_eq!(detail.field, "release_mode");
                 assert_eq!(detail.value.as_deref(), Some("pipeline"));
@@ -215,9 +240,22 @@ mod tests {
     }
 
     #[test]
-    fn malformed_requirement_is_not_treated_as_an_upgrade() {
+    fn upgrade_without_a_named_culprit_points_at_the_declaration() {
+        match gate_declared_requirement(None, Some("9999.1.1")) {
+            GateOutcome::UpgradeRequired(detail) => {
+                assert_eq!(detail.field, super::REQUIRE_RELEASE_KEY);
+            }
+            other => panic!("expected upgrade prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_requirement_is_not_an_upgrade_prompt() {
+        // The gate compares release numbers; a value it cannot read is not a
+        // version request. `load_config` rejects it separately as
+        // `malformed_config_requirement` so the failure cannot fail open here.
         assert_eq!(
-            gate_declared_requirement("release_mode", None, Some("newest")),
+            gate_declared_requirement(None, Some("newest")),
             GateOutcome::Supported
         );
     }

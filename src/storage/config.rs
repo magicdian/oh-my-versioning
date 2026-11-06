@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::OmvConfig;
 use crate::core::target::ProjectProfile;
+use crate::core::versioning::capability;
 use crate::core::versioning::{
     BuildPolicy, GateOutcome, ReleaseMode, VersionOutput, gate_declared_requirement,
 };
@@ -108,18 +109,33 @@ pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
 
 /// Rejects a config whose `requires_omv` outranks the running binary.
 ///
-/// This is the one check an *older* binary can still perform, because the
-/// requirement is written in the file rather than compiled into the reader. When
-/// `requires_omv` names a newer release, `release_mode` is reported alongside it
-/// so the message points at the setting that forced the upgrade.
+/// `requires_omv` is the one check a binary can perform without having compiled
+/// in knowledge of the newer value: the requirement lives in the file. It cannot
+/// protect a binary that predates the key (that binary ignores unknown keys), but
+/// it does protect every release from the one that introduced it onwards -- which
+/// is what stops a machine silently falling back to an older `omv` on a newer
+/// project.
+///
+/// A malformed value is rejected here rather than treated as "no requirement".
+/// Fail-open would let a typo disable the check entirely, and this key is the
+/// boundary that decides whether the file may be read at all.
 fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError> {
-    let declared = declared_requirement(assignments);
+    let Some(declared) = declared_requirement(assignments) else {
+        // Absent declarations are the documented legacy path; nothing to check.
+        return Ok(());
+    };
+
+    if capability::is_malformed_version(declared) {
+        return Err(ConfigError::MalformedRequirement(declared.to_owned()).into());
+    }
+
     let release_mode = assignments
         .iter()
         .find(|(key, _)| key == "release_mode")
         .map(|(_, value)| value.as_str());
+    let culprit = release_mode.map(|value| ("release_mode", value));
 
-    match gate_declared_requirement("release_mode", release_mode, declared) {
+    match gate_declared_requirement(culprit, Some(declared)) {
         GateOutcome::Supported => Ok(()),
         GateOutcome::UpgradeRequired(detail) => {
             Err(ConfigError::UnsupportedCapability(detail).into())
@@ -127,21 +143,27 @@ fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError>
     }
 }
 
-/// Verifies that `requires_omv` still describes the values actually written.
+/// Rejects a declaration that is unparsable or weaker than the config's values.
 ///
-/// The declaration is hand-editable and derived by `required_omv_for`, which
-/// lists gated fields manually. Either can drift: a new gated field may be added
-/// without updating that list, or someone may edit the file by hand. A
-/// declaration weaker than the config's real needs would let an older binary read
-/// a file it cannot honour, so it is rejected rather than trusted.
-fn ensure_declaration_matches(config: &OmvConfig, assignments: &[(String, String)]) -> Result<(), OmvError> {
+/// `required_omv_for` lists gated fields by hand, so it can miss a field when one
+/// is added. A declaration weaker than the config's real needs would let a binary
+/// that lacks the newer value read a file it cannot honour, so it is rejected
+/// rather than trusted. This catches drift observable to *this* binary; a field
+/// gated by a future release is invisible until that release ships.
+fn ensure_declaration_matches(
+    config: &OmvConfig,
+    assignments: &[(String, String)],
+) -> Result<(), OmvError> {
     let Some(declared) = declared_requirement(assignments) else {
-        // Absent declarations are the documented legacy path; nothing to verify.
         return Ok(());
     };
 
+    if capability::is_malformed_version(declared) {
+        return Err(ConfigError::MalformedRequirement(declared.to_owned()).into());
+    }
+
     let actual = crate::core::versioning::required_omv_for(config);
-    if crate::core::versioning::capability::requires_upgrade(declared, actual) {
+    if capability::requires_upgrade(declared, actual) {
         return Err(ConfigError::DeclarationMismatch {
             declared: declared.to_owned(),
             actual: actual.to_owned(),
@@ -150,6 +172,41 @@ fn ensure_declaration_matches(config: &OmvConfig, assignments: &[(String, String
     }
 
     Ok(())
+}
+
+/// Brings `requires_omv` in line with the config's values.
+///
+/// Called from the paths that establish a project's desired state (`omv init`
+/// and `omv integrate apply`). Without this, a project created before the key
+/// existed would never gain it, and the declaration would stay absent forever --
+/// which is indistinguishable from "no requirement" to every reader.
+///
+/// Returns `true` when the file was rewritten.
+pub fn reconcile_requirement(root: &Path) -> Result<bool, OmvError> {
+    let path = path_for(root);
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    let content = fs::read_to_string(&path).map_err(|err| ConfigError::Parse {
+        path: path.clone(),
+        reason: err.to_string(),
+    })?;
+    let assignments = parse_assignments(&content);
+    let declared = declared_requirement(&assignments).map(str::to_owned);
+    let config = load_config(root)?;
+    let actual = crate::core::versioning::required_omv_for(&config);
+
+    let needs_write = match declared.as_deref() {
+        None => true,
+        Some(declared) => declared != actual,
+    };
+    if !needs_write {
+        return Ok(false);
+    }
+
+    save_config(root, &config)?;
+    Ok(true)
 }
 
 fn declared_requirement(assignments: &[(String, String)]) -> Option<&str> {
@@ -189,7 +246,7 @@ mod tests {
     use crate::core::versioning::{BuildPolicy, ReleaseMode, VersionOutput};
     use crate::errors::{ConfigError, OmvError};
 
-    use super::{load_config, path_for, save_config};
+    use super::{load_config, path_for, reconcile_requirement, save_config};
 
     #[test]
     fn config_round_trip_preserves_all_fields() {
@@ -405,6 +462,116 @@ ntp_enabled = false
 
         let loaded = load_config(&root).expect("an exact declaration should load");
         assert_eq!(loaded.release_mode, ReleaseMode::Pipeline);
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn malformed_requirement_is_rejected_rather_than_ignored() {
+        let root = temp_omv_root("config-requires-omv-malformed");
+        let path = path_for(&root);
+        // Fail-open here would let a typo switch the version check off on the
+        // one file that decides whether this project may be read at all.
+        let raw = r#"schema_version = 1
+requires_omv = "newest"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("a malformed declaration must be rejected");
+        match err {
+            OmvError::Config(ConfigError::MalformedRequirement(value)) => {
+                assert_eq!(value, "newest");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn upgrade_error_names_the_key_that_forced_it() {
+        let root = temp_omv_root("config-upgrade-culprit");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+requires_omv = "9999.1.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("a newer declaration must be rejected");
+        match err {
+            // Reporting `release_mode = "pipeline"` is accurate here: it is why
+            // the project needs a later release than the baseline.
+            OmvError::Config(ConfigError::UnsupportedCapability(detail)) => {
+                assert_eq!(detail.field, "release_mode");
+                assert_eq!(detail.value.as_deref(), Some("pipeline"));
+                assert_eq!(detail.required_version, "9999.1.1");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn reconcile_adds_a_missing_declaration() {
+        let root = temp_omv_root("config-reconcile-missing");
+        let path = path_for(&root);
+        // A project created before the key existed.
+        let raw = r#"schema_version = 1
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        assert!(reconcile_requirement(&root).expect("reconcile should succeed"));
+
+        let raw = fs::read_to_string(&path).expect("config should exist");
+        assert!(raw.contains("requires_omv = \"2611.2.1\""));
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn reconcile_leaves_a_correct_declaration_untouched() {
+        let root = temp_omv_root("config-reconcile-idempotent");
+        save_config(
+            &root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        assert!(!reconcile_requirement(&root).expect("reconcile should succeed"));
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn reconcile_skips_projects_without_a_config() {
+        let root = temp_omv_root("config-reconcile-absent");
+
+        assert!(!reconcile_requirement(&root).expect("reconcile should succeed"));
 
         cleanup_root(&root);
     }

@@ -119,6 +119,15 @@ pub fn requires_upgrade(current_version: &str, required_version: &str) -> bool {
     )
 }
 
+/// True when `value` cannot be read as a release number.
+///
+/// `requires_omv` decides whether a file may be read at all, so a value that
+/// cannot be compared must be rejected rather than silently treated as "no
+/// requirement" -- a typo there would otherwise disable the check entirely.
+pub fn is_malformed_version(value: &str) -> bool {
+    parse_version_segments(value).is_none()
+}
+
 /// Builds the error payload for a config that outranks the running binary.
 pub fn unsupported(
     field: &'static str,

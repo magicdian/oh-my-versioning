@@ -1141,6 +1141,12 @@ fn execute_integrate_apply(
     project_root: &Path,
 ) -> Result<IntegrationApplySummary, OmvError> {
     adapter::ensure_canonical_artifacts(omv_root)?;
+
+    // `requires_omv` is derived state like the canonical artifacts above: a
+    // project created before the key existed must gain it here, or readers keep
+    // seeing an absent declaration and the version check never engages.
+    storage::config::reconcile_requirement(omv_root)?;
+
     let mut state = load_integration_state(omv_root)?;
     let before = build_integration_status(project_root, &state)?;
     update_state_from_status(&mut state, &before);

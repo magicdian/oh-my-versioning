@@ -166,6 +166,8 @@ pub enum ConfigError {
     UnsupportedCapability(crate::core::versioning::capability::UnsupportedCapability),
     /// `requires_omv` understates what the config's own values need.
     DeclarationMismatch { declared: String, actual: String },
+    /// `requires_omv` is not a release number.
+    MalformedRequirement(String),
     Parse { path: PathBuf, reason: String },
     Missing { path: PathBuf },
 }
@@ -183,6 +185,10 @@ impl Display for ConfigError {
             Self::DeclarationMismatch { declared, actual } => write!(
                 f,
                 ".omv/config.toml declares requires_omv = \"{declared}\" but its values need omv >= {actual}; run `omv integrate apply` to rewrite the declaration"
+            ),
+            Self::MalformedRequirement(value) => write!(
+                f,
+                ".omv/config.toml declares requires_omv = \"{value}\", which is not a release number; expected something like \"2611.2.1\""
             ),
             Self::Parse { path, reason } => {
                 write!(f, "failed to parse config {}: {reason}", path.display())
@@ -484,6 +490,9 @@ impl OmvError {
             Self::Config(ConfigError::DeclarationMismatch { .. }) => {
                 "config_declaration_mismatch"
             }
+            Self::Config(ConfigError::MalformedRequirement(_)) => {
+                "malformed_config_requirement"
+            }
             Self::Finalization(FinalizationError::Parse { .. }) => "finalizations_parse_failed",
             Self::Finalization(FinalizationError::Missing { .. }) => "missing_finalizations",
             Self::Finalization(FinalizationError::MissingField(_)) => "missing_finalization_field",
@@ -613,6 +622,9 @@ impl OmvError {
             Self::Config(ConfigError::DeclarationMismatch { declared, actual }) => {
                 map.insert(String::from("declared"), Value::String(declared.clone()));
                 map.insert(String::from("actual"), Value::String(actual.clone()));
+            }
+            Self::Config(ConfigError::MalformedRequirement(value)) => {
+                map.insert(String::from("requires_omv"), Value::String(value.clone()));
             }
             Self::Config(ConfigError::Parse { path, reason })
             | Self::Finalization(FinalizationError::Parse { path, reason })
