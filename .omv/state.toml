@@ -1,5 +1,5 @@
 schema_version = 1
-logical_date = "2026-11-02"
+logical_date = "2026-11-06"
 build_number = 1
-last_issued_version = "2611.2.1"
-last_time_source = "system"
+last_issued_version = "2611.6.1"
+last_time_source = "ntp"
