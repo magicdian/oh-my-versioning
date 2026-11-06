@@ -42,6 +42,52 @@ Accepted values:
 A missing key means `local`, so upgrading OMV does not change an existing
 project. An invalid value fails with `invalid_release_mode`.
 
+### 2.1 `requires_omv`
+
+`release_mode = "pipeline"` only exists from `omv 2611.2.1`. An older binary
+cannot detect the mismatch by comparing value tables — it simply does not have
+`pipeline` in its `ReleaseMode` enum, so `ReleaseMode::parse("pipeline")` returns
+`None` and the loader falls back to the `Default` (`local`). The guard then never
+runs, and a pipeline project silently accepts local version writes.
+
+Nothing compiled into the binary can fix that, because the binary that needs
+protecting is the one that predates the fix. The project therefore declares its
+own minimum in the config file, which every binary — old or new — can read:
+
+```toml
+schema_version = 1
+requires_omv = "2611.2.1"
+release_mode = "pipeline"
+```
+
+`omv init` and `omv integrate apply` write this automatically:
+`local` projects declare the baseline `0.0.1`, `pipeline` projects declare
+`2611.2.1`.
+
+Enforcement happens in `load_config` before any typed field is parsed. A binary
+older than the declared version exits with:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "unsupported_config_capability",
+    "message": ".omv/config.toml declares release_mode = \"pipeline\", which needs omv >= 2611.2.1, but this binary is 2610.27.2; upgrade omv (npm install -g @magicdian/omv@latest) to read this project",
+    "details": {
+      "field": "release_mode",
+      "value": "pipeline",
+      "required_version": "2611.2.1",
+      "current_version": "2610.27.2"
+    }
+  }
+}
+```
+
+The check is deliberately one-directional: a *newer* binary reading an older
+config is always fine, and an absent `requires_omv` keeps every pre-existing
+config loadable. A malformed declaration is not treated as an upgrade request —
+it falls through to the normal parse error.
+
 `release_mode` is independent of `project_profile`:
 
 - `project_profile` describes the project (personal, oss, ...).

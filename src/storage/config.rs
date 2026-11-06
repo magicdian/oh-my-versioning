@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::OmvConfig;
 use crate::core::target::ProjectProfile;
-use crate::core::versioning::{BuildPolicy, ReleaseMode, VersionOutput};
+use crate::core::versioning::{
+    BuildPolicy, GateOutcome, ReleaseMode, VersionOutput, gate_declared_requirement,
+};
 use crate::errors::{ConfigError, OmvError};
 
 use super::{CONFIG_FILE, atomic};
@@ -26,8 +28,11 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
         }
     })?;
 
+    let assignments = parse_assignments(&content);
+    ensure_required_omv(&assignments)?;
+
     let mut config = OmvConfig::default();
-    for (key, value) in parse_assignments(&content) {
+    for (key, value) in assignments {
         match key.as_str() {
             "schema_version" => {
                 config.schema_version = value.parse::<u32>().map_err(|e| ConfigError::Parse {
@@ -35,6 +40,9 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
                     reason: format!("invalid schema_version: {e}"),
                 })?;
             }
+            // Checked up front by `ensure_required_omv`; kept out of the
+            // typed config because it describes the config, not the project.
+            "requires_omv" => {}
             "locale" => {
                 if !OperatorLocale::is_supported(&value) {
                     return Err(ConfigError::InvalidLocale(value).into());
@@ -80,8 +88,9 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
 pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
     let path = path_for(root);
     let content = format!(
-        "schema_version = {}\nlocale = \"{}\"\ntimezone = \"{}\"\nproject_profile = \"{}\"\nrelease_mode = \"{}\"\nversion_output = \"{}\"\nbuild_policy = \"{}\"\nntp_enabled = {}\n",
+        "schema_version = {}\nrequires_omv = \"{}\"\nlocale = \"{}\"\ntimezone = \"{}\"\nproject_profile = \"{}\"\nrelease_mode = \"{}\"\nversion_output = \"{}\"\nbuild_policy = \"{}\"\nntp_enabled = {}\n",
         config.schema_version,
+        crate::core::versioning::required_omv_for(config.release_mode),
         config.locale.as_str(),
         config.timezone,
         config.project_profile.as_str(),
@@ -92,6 +101,30 @@ pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
     );
 
     atomic::write_atomically(&path, content.as_bytes())
+}
+
+/// Rejects a config whose `requires_omv` outranks the running binary.
+///
+/// This is the one check an *older* binary can still perform, because the
+/// requirement is written in the file rather than compiled into the reader. When
+/// `requires_omv` names a newer release, `release_mode` is reported alongside it
+/// so the message points at the setting that forced the upgrade.
+fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError> {
+    let declared = assignments
+        .iter()
+        .find(|(key, _)| key == "requires_omv")
+        .map(|(_, value)| value.as_str());
+    let release_mode = assignments
+        .iter()
+        .find(|(key, _)| key == "release_mode")
+        .map(|(_, value)| value.as_str());
+
+    match gate_declared_requirement("release_mode", release_mode, declared) {
+        GateOutcome::Supported => Ok(()),
+        GateOutcome::UpgradeRequired(detail) => {
+            Err(ConfigError::UnsupportedCapability(detail).into())
+        }
+    }
 }
 
 fn parse_assignments(content: &str) -> Vec<(String, String)> {
@@ -210,6 +243,138 @@ ntp_enabled = true
             }
             other => panic!("unexpected error variant: {other}"),
         }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn config_accepts_every_release_mode_this_binary_ships() {
+        let root = temp_omv_root("config-release-mode-supported");
+        let path = path_for(&root);
+        // Both shipped values must load; a gate that rejects its own table
+        // would make the feature unusable.
+        for mode in ["local", "pipeline"] {
+        let raw = format!(
+            r#"schema_version = 1
+requires_omv = "2611.2.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "{mode}"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#
+        );
+            fs::write(&path, raw).expect("should write config fixture");
+
+            let loaded = load_config(&root).expect("supported release mode should load");
+            assert_eq!(loaded.release_mode.as_str(), mode);
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn config_reports_upgrade_requirement_with_a_stable_code() {
+        let error = OmvError::Config(ConfigError::UnsupportedCapability(
+            crate::core::versioning::capability::unsupported(
+                "release_mode",
+                Some("pipeline"),
+                "9999.1.1",
+                "2610.27.2",
+            ),
+        ));
+
+        assert_eq!(error.code(), "unsupported_config_capability");
+        let message = error.to_string();
+        assert!(message.contains("9999.1.1"));
+        assert!(message.contains("2610.27.2"));
+        assert!(message.contains("upgrade omv"));
+    }
+
+    #[test]
+    fn config_declaring_a_newer_required_omv_is_rejected() {
+        let root = temp_omv_root("config-requires-omv-newer");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+requires_omv = "9999.1.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("a newer requires_omv must be rejected");
+        match err {
+            OmvError::Config(ConfigError::UnsupportedCapability(detail)) => {
+                assert_eq!(detail.required_version, "9999.1.1");
+                assert_eq!(detail.value.as_deref(), Some("pipeline"));
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn config_declaring_a_satisfiable_required_omv_loads() {
+        let root = temp_omv_root("config-requires-omv-satisfied");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+requires_omv = "2611.2.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let loaded = load_config(&root).expect("satisfiable requires_omv should load");
+        assert_eq!(loaded.release_mode, ReleaseMode::Pipeline);
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn save_config_declares_the_minimum_omv_for_the_project() {
+        let root = temp_omv_root("config-save-requires-omv");
+
+        save_config(
+            &root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        let raw = fs::read_to_string(path_for(&root)).expect("config should exist");
+        assert!(raw.contains("requires_omv = \"2611.2.1\""));
+
+        // The declaration must round-trip: the file this version writes has to
+        // load under the same version.
+        let reloaded = load_config(&root).expect("written config should load");
+        assert_eq!(reloaded.release_mode, ReleaseMode::Pipeline);
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn local_projects_declare_only_the_baseline_requirement() {
+        let root = temp_omv_root("config-save-baseline");
+
+        save_config(&root, &OmvConfig::default()).expect("config should save");
+
+        let raw = fs::read_to_string(path_for(&root)).expect("config should exist");
+        assert!(raw.contains("requires_omv = \"0.0.1\""));
 
         cleanup_root(&root);
     }

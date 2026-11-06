@@ -162,6 +162,8 @@ pub enum ConfigError {
     InvalidLocale(String),
     InvalidBuildPolicy(String),
     InvalidReleaseMode(String),
+    /// A value exists only in a newer `omv` release than the running binary.
+    UnsupportedCapability(crate::core::versioning::capability::UnsupportedCapability),
     Parse { path: PathBuf, reason: String },
     Missing { path: PathBuf },
 }
@@ -175,6 +177,7 @@ impl Display for ConfigError {
             Self::InvalidLocale(locale) => write!(f, "invalid locale: {locale}"),
             Self::InvalidBuildPolicy(policy) => write!(f, "invalid build policy: {policy}"),
             Self::InvalidReleaseMode(mode) => write!(f, "invalid release mode: {mode}"),
+            Self::UnsupportedCapability(detail) => write!(f, "{detail}"),
             Self::Parse { path, reason } => {
                 write!(f, "failed to parse config {}: {reason}", path.display())
             }
@@ -469,6 +472,9 @@ impl OmvError {
             Self::Config(ConfigError::InvalidReleaseMode(_)) => "invalid_release_mode",
             Self::Config(ConfigError::Parse { .. }) => "config_parse_failed",
             Self::Config(ConfigError::Missing { .. }) => "missing_config",
+            Self::Config(ConfigError::UnsupportedCapability(_)) => {
+                "unsupported_config_capability"
+            }
             Self::Finalization(FinalizationError::Parse { .. }) => "finalizations_parse_failed",
             Self::Finalization(FinalizationError::Missing { .. }) => "missing_finalizations",
             Self::Finalization(FinalizationError::MissingField(_)) => "missing_finalization_field",
@@ -580,6 +586,20 @@ impl OmvError {
             }
             Self::Config(ConfigError::InvalidReleaseMode(mode)) => {
                 map.insert(String::from("release_mode"), Value::String(mode.clone()));
+            }
+            Self::Config(ConfigError::UnsupportedCapability(detail)) => {
+                map.insert(String::from("field"), Value::String(detail.field.to_owned()));
+                if let Some(value) = &detail.value {
+                    map.insert(String::from("value"), Value::String(value.clone()));
+                }
+                map.insert(
+                    String::from("required_version"),
+                    Value::String(detail.required_version.clone()),
+                );
+                map.insert(
+                    String::from("current_version"),
+                    Value::String(detail.current_version.clone()),
+                );
             }
             Self::Config(ConfigError::Parse { path, reason })
             | Self::Finalization(FinalizationError::Parse { path, reason })
