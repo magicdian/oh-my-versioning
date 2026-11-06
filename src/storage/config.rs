@@ -30,6 +30,7 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
 
     let assignments = parse_assignments(&content);
     ensure_required_omv(&assignments)?;
+    let declared_assignments = assignments.clone();
 
     let mut config = OmvConfig::default();
     for (key, value) in assignments {
@@ -82,6 +83,8 @@ pub fn load_config(root: &Path) -> Result<OmvConfig, OmvError> {
         }
     }
 
+    ensure_declaration_matches(&config, &declared_assignments)?;
+
     Ok(config)
 }
 
@@ -90,7 +93,7 @@ pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
     let content = format!(
         "schema_version = {}\nrequires_omv = \"{}\"\nlocale = \"{}\"\ntimezone = \"{}\"\nproject_profile = \"{}\"\nrelease_mode = \"{}\"\nversion_output = \"{}\"\nbuild_policy = \"{}\"\nntp_enabled = {}\n",
         config.schema_version,
-        crate::core::versioning::required_omv_for(config.release_mode),
+        crate::core::versioning::required_omv_for(config),
         config.locale.as_str(),
         config.timezone,
         config.project_profile.as_str(),
@@ -110,10 +113,7 @@ pub fn save_config(root: &Path, config: &OmvConfig) -> Result<(), OmvError> {
 /// `requires_omv` names a newer release, `release_mode` is reported alongside it
 /// so the message points at the setting that forced the upgrade.
 fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError> {
-    let declared = assignments
-        .iter()
-        .find(|(key, _)| key == "requires_omv")
-        .map(|(_, value)| value.as_str());
+    let declared = declared_requirement(assignments);
     let release_mode = assignments
         .iter()
         .find(|(key, _)| key == "release_mode")
@@ -126,6 +126,41 @@ fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError>
         }
     }
 }
+
+/// Verifies that `requires_omv` still describes the values actually written.
+///
+/// The declaration is hand-editable and derived by `required_omv_for`, which
+/// lists gated fields manually. Either can drift: a new gated field may be added
+/// without updating that list, or someone may edit the file by hand. A
+/// declaration weaker than the config's real needs would let an older binary read
+/// a file it cannot honour, so it is rejected rather than trusted.
+fn ensure_declaration_matches(config: &OmvConfig, assignments: &[(String, String)]) -> Result<(), OmvError> {
+    let Some(declared) = declared_requirement(assignments) else {
+        // Absent declarations are the documented legacy path; nothing to verify.
+        return Ok(());
+    };
+
+    let actual = crate::core::versioning::required_omv_for(config);
+    if crate::core::versioning::capability::requires_upgrade(declared, actual) {
+        return Err(ConfigError::DeclarationMismatch {
+            declared: declared.to_owned(),
+            actual: actual.to_owned(),
+        }
+        .into());
+    }
+
+    Ok(())
+}
+
+fn declared_requirement(assignments: &[(String, String)]) -> Option<&str> {
+    assignments
+        .iter()
+        .find(|(key, _)| key == REQUIRE_RELEASE_KEY)
+        .map(|(_, value)| value.as_str())
+}
+
+/// Config key declaring the minimum `omv` release that can honour the file.
+const REQUIRE_RELEASE_KEY: &str = "requires_omv";
 
 fn parse_assignments(content: &str) -> Vec<(String, String)> {
     content
@@ -291,6 +326,87 @@ ntp_enabled = false
         assert!(message.contains("9999.1.1"));
         assert!(message.contains("2610.27.2"));
         assert!(message.contains("upgrade omv"));
+    }
+
+    #[test]
+    fn declaration_weaker_than_the_config_values_is_rejected() {
+        let root = temp_omv_root("config-declaration-weaker");
+        let path = path_for(&root);
+        // Hand-edited: pipeline needs 2611.2.1 but the file claims the baseline.
+        let raw = r#"schema_version = 1
+requires_omv = "0.0.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("an understated declaration must be rejected");
+        match err {
+            OmvError::Config(ConfigError::DeclarationMismatch { declared, actual }) => {
+                assert_eq!(declared, "0.0.1");
+                assert_eq!(actual, "2611.2.1");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn declaration_stronger_than_needed_is_still_an_upgrade_request() {
+        let root = temp_omv_root("config-declaration-stronger");
+        let path = path_for(&root);
+        // Over-declaring keeps the file internally consistent, but the running
+        // binary still cannot honour a config that claims to need a later
+        // release. That is the declaration doing its job.
+        let raw = r#"schema_version = 1
+requires_omv = "9999.1.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "local"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let err = load_config(&root).expect_err("a newer declaration must still be rejected");
+        match err {
+            OmvError::Config(ConfigError::UnsupportedCapability(detail)) => {
+                assert_eq!(detail.required_version, "9999.1.1");
+            }
+            other => panic!("unexpected error variant: {other}"),
+        }
+
+        cleanup_root(&root);
+    }
+
+    #[test]
+    fn declaration_equal_to_the_actual_need_loads() {
+        let root = temp_omv_root("config-declaration-exact");
+        let path = path_for(&root);
+        let raw = r#"schema_version = 1
+requires_omv = "2611.2.1"
+locale = "en-US"
+timezone = "UTC+0"
+project_profile = "personal"
+release_mode = "pipeline"
+version_output = "date-triplet"
+build_policy = "daily-reset"
+ntp_enabled = false
+"#;
+        fs::write(&path, raw).expect("should write config fixture");
+
+        let loaded = load_config(&root).expect("an exact declaration should load");
+        assert_eq!(loaded.release_mode, ReleaseMode::Pipeline);
+
+        cleanup_root(&root);
     }
 
     #[test]

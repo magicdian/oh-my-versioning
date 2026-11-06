@@ -88,6 +88,46 @@ config is always fine, and an absent `requires_omv` keeps every pre-existing
 config loadable. A malformed declaration is not treated as an upgrade request —
 it falls through to the normal parse error.
 
+#### How the declaration is derived
+
+A config file is read as a whole: a release either understands all of it or none
+of it. So a single number covers every key — the strictest requirement across the
+gated values, not one entry per key:
+
+```toml
+requires_omv = "2612.1.1"   # max of the requirements below
+release_mode  = "pipeline"  # -> 2611.2.1
+some_future_key = "..."     # -> 2612.1.1  (this one decides)
+```
+
+Each gated enum implements `ConfigCapability::minimum_omv`, and
+`required_omv_for(&OmvConfig)` takes the maximum. Adding a new gated value means
+adding one arm to its `minimum_omv` match — the match is exhaustive, so the
+compiler refuses a new variant that forgot to declare its release — plus one line
+in `required_omv_for`'s field list.
+
+That last list is maintained by hand, so `load_config` cross-checks it. After
+parsing, it compares the file's declaration against what its values actually need
+and rejects an understated one:
+
+```json
+{
+  "code": "config_declaration_mismatch",
+  "message": ".omv/config.toml declares requires_omv = \"0.0.1\" but its values need omv >= 2611.2.1; run `omv integrate apply` to rewrite the declaration",
+  "details": { "declared": "0.0.1", "actual": "2611.2.1" }
+}
+```
+
+This catches both a `required_omv_for` that missed a new field and a hand-edited
+declaration. A declaration *stronger* than needed is legal but still triggers the
+upgrade prompt, because the running binary genuinely cannot honour a file that
+claims to need a later release.
+
+Practical consequence: the requirement is monotonic and project-wide. One project
+using a newer key forces every contributor on that project to run an `omv` at
+least that new. That is the intended trade — version mismatch surfaces at the
+first read instead of silently landing as a bad version bump.
+
 `release_mode` is independent of `project_profile`:
 
 - `project_profile` describes the project (personal, oss, ...).

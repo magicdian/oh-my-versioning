@@ -1,9 +1,10 @@
 pub mod capability;
 pub mod engine;
 
+use crate::core::schema::OmvConfig;
 use crate::generated::version::OMV_VERSION;
 
-use capability::UnsupportedCapability;
+use capability::{ConfigCapability, UnsupportedCapability};
 
 /// First release that understands `release_mode = "pipeline"`.
 ///
@@ -38,6 +39,15 @@ impl ReleaseMode {
     }
 }
 
+impl ConfigCapability for ReleaseMode {
+    fn minimum_omv(&self) -> Option<&'static str> {
+        match self {
+            Self::Local => None,
+            Self::Pipeline => Some(RELEASE_MODE_PIPELINE_SINCE),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BuildPolicy {
     #[default]
@@ -62,6 +72,14 @@ impl BuildPolicy {
     }
 }
 
+impl ConfigCapability for BuildPolicy {
+    fn minimum_omv(&self) -> Option<&'static str> {
+        match self {
+            Self::DailyReset | Self::Continuous => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VersionOutput {
     #[default]
@@ -82,6 +100,14 @@ impl VersionOutput {
             "date-triplet" => Some(Self::DateTriplet),
             "semver" => Some(Self::Semver),
             _ => None,
+        }
+    }
+}
+
+impl ConfigCapability for VersionOutput {
+    fn minimum_omv(&self) -> Option<&'static str> {
+        match self {
+            Self::DateTriplet | Self::Semver => None,
         }
     }
 }
@@ -124,18 +150,26 @@ pub fn gate_declared_requirement(
 
 /// The `requires_omv` value a project should declare for its current config.
 ///
-/// `release_mode = "pipeline"` only means what it says from the release that
-/// introduced it; every other setting in `.omv/config.toml` predates this
-/// mechanism, so the baseline applies.
-pub fn required_omv_for(release_mode: ReleaseMode) -> &'static str {
-    match release_mode {
-        ReleaseMode::Local => capability::BASELINE_VERSION,
-        ReleaseMode::Pipeline => RELEASE_MODE_PIPELINE_SINCE,
-    }
+/// Reads the strictest requirement across every gated field. A config file is
+/// read as a whole -- a release either understands all of it or none of it -- so
+/// the hardest requirement is the only one a reader needs. Adding a new gated
+/// field means adding one line below; forgetting it makes the declaration *less*
+/// strict than reality, which `load_config` catches by comparing the file's
+/// declaration against this same function.
+pub fn required_omv_for(config: &OmvConfig) -> &'static str {
+    let strictest = capability::strongest_requirement([
+        config.release_mode.minimum_omv(),
+        config.build_policy.minimum_omv(),
+        config.version_output.minimum_omv(),
+    ]);
+
+    strictest.unwrap_or(capability::BASELINE_VERSION)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::core::schema::OmvConfig;
+
     use super::{GateOutcome, ReleaseMode, gate_declared_requirement, required_omv_for};
 
     #[test]
@@ -190,14 +224,54 @@ mod tests {
 
     #[test]
     fn pipeline_projects_declare_the_release_that_added_pipeline() {
-        assert_eq!(required_omv_for(ReleaseMode::Pipeline), "2611.2.1");
+        let config = OmvConfig {
+            release_mode: ReleaseMode::Pipeline,
+            ..OmvConfig::default()
+        };
+        assert_eq!(required_omv_for(&config), "2611.2.1");
     }
 
     #[test]
     fn local_projects_declare_only_the_baseline() {
+        let config = OmvConfig {
+            release_mode: ReleaseMode::Local,
+            ..OmvConfig::default()
+        };
         assert_eq!(
-            required_omv_for(ReleaseMode::Local),
+            required_omv_for(&config),
             super::capability::BASELINE_VERSION
         );
+    }
+
+    #[test]
+    fn ungated_fields_never_raise_the_declaration() {
+        // Neither field has introduced a versioned value, so the strictest
+        // requirement still comes solely from release_mode.
+        let config = OmvConfig {
+            release_mode: ReleaseMode::Local,
+            build_policy: super::BuildPolicy::Continuous,
+            version_output: super::VersionOutput::Semver,
+            ..OmvConfig::default()
+        };
+        assert_eq!(
+            required_omv_for(&config),
+            super::capability::BASELINE_VERSION
+        );
+    }
+
+    #[test]
+    fn strongest_requirement_picks_the_newest_release() {
+        let picked = super::capability::strongest_requirement([
+            None,
+            Some("2611.2.1"),
+            Some("2612.1.1"),
+            Some("2610.27.2"),
+        ]);
+        assert_eq!(picked, Some("2612.1.1"));
+    }
+
+    #[test]
+    fn strongest_requirement_of_nothing_is_none() {
+        assert_eq!(super::capability::strongest_requirement([None, None]), None);
     }
 }

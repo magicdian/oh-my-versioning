@@ -16,6 +16,33 @@ use std::cmp::Ordering;
 /// Sentinel meaning "no upgrade required"; sorts below every real release.
 pub const BASELINE_VERSION: &str = "0.0.1";
 
+/// A configuration value that may require a newer `omv` than its siblings.
+///
+/// Implementors answer one question: from which release does this value mean
+/// what it says? `None` means it has been valid since the beginning, so it never
+/// raises a project's minimum. Each new value that changes semantics must be
+/// given an arm here -- the match is exhaustive, so the compiler refuses to
+/// build a variant that forgot to declare its release.
+pub trait ConfigCapability {
+    /// Minimum `omv` release that understands this value.
+    fn minimum_omv(&self) -> Option<&'static str>;
+}
+
+/// Highest requirement across `requirements`, ignoring `None` entries.
+///
+/// A config file is read as a whole: it is either fully understood by a release
+/// or it is not. The strictest requirement is therefore the only number a reader
+/// needs, which is why the config carries a single `requires_omv` rather than one
+/// entry per key.
+pub fn strongest_requirement<'a, I>(requirements: I) -> Option<&'a str>
+where
+    I: IntoIterator<Item = Option<&'a str>>,
+{
+    requirements.into_iter().flatten().max_by(|left, right| {
+        compare_versions(left, right).unwrap_or(Ordering::Equal)
+    })
+}
+
 /// A configuration file that demands a newer `omv` than the running binary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedCapability {

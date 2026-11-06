@@ -69,9 +69,14 @@ Also read:
   here: a binary older than the feature has no entry for the new value, falls
   back to the enum default, and skips the guard entirely — which is how
   `omv@2610.27.2` accepted local writes in a `release_mode = "pipeline"`
-  project. `required_omv_for(release_mode)` (src/core/versioning/mod.rs) is the
-  single place that maps a mode to its minimum release, and `save_config` writes
-  it so the declaration cannot drift from the value it guards. Absent
+  project. Gated enums implement `ConfigCapability::minimum_omv` (an exhaustive
+  match, so a new variant cannot silently omit its release) and
+  `required_omv_for(&OmvConfig)` takes the strictest requirement across fields —
+  one number, because a config is read as a whole. `save_config` writes it, so the
+  declaration cannot drift from the values it guards. `load_config` cross-checks
+  the written declaration against `required_omv_for` and rejects an understated
+  one with `config_declaration_mismatch`; that check is what catches a
+  `required_omv_for` field list that missed a newly gated field. Absent
   `requires_omv` stays compatible; a malformed one is a parse error, not an
   upgrade prompt.
 - Version strings (`2611.2.1`) are date-derived, not semver, and compare as
