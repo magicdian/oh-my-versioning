@@ -41,6 +41,11 @@ DIR_WORKFLOW = ".phronia"
 DIR_RUNTIME = ".runtime"
 DIR_SHELL_TICKETS = "shell-tickets"
 SESSION_SUBCOMMANDS = {"start", "current", "finish"}
+WORKSPACE_ACTIONS = {"prepare", "ensure", "bind", "release", "reclaim"}
+LEASE_ACTIONS = {"acquire", "release", "heartbeat"}
+WORKSPACE_REF_ACTIONS = {"ensure", "bind"}
+LEASE_REF_ACTIONS = {"acquire", "release"}
+CLI_EXECUTABLES = {"phronia", "trellis"}
 TICKET_TTL_SECONDS = 30
 CONTEXT_IDENTITY_KEYS = (
     "session_id",
@@ -168,6 +173,14 @@ def _load_active_task_resolver(root: Path):
     return resolve_context_key
 
 
+def _executable_name(token: str) -> str:
+    name = Path(token.strip("\"'")).name
+    for suffix in (".cjs", ".mjs", ".js"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
 def _extract_task_subcommands(command: str) -> list[dict[str, str]]:
     try:
         tokens = shlex.split(command, posix=os.name != "nt")
@@ -175,16 +188,35 @@ def _extract_task_subcommands(command: str) -> list[dict[str, str]]:
         return []
 
     subcommands: list[dict[str, str]] = []
-    for index, token in enumerate(tokens[:-1]):
-        if Path(token.strip("\"'")).name != "task.py":
+    for index, token in enumerate(tokens):
+        executable = _executable_name(token)
+        if executable == "task.py":
+            name = tokens[index + 1] if index + 1 < len(tokens) else ""
+            if name not in SESSION_SUBCOMMANDS:
+                continue
+            item = {"name": name, "action": name}
+            if name == "start" and index + 2 < len(tokens):
+                item["task_ref"] = tokens[index + 2]
+            subcommands.append(item)
             continue
-        name = tokens[index + 1]
-        if name not in SESSION_SUBCOMMANDS:
+
+        if executable not in CLI_EXECUTABLES:
             continue
-        item = {"name": name}
-        if name == "start" and index + 2 < len(tokens):
-            item["task_ref"] = tokens[index + 2]
-        subcommands.append(item)
+        if index + 1 >= len(tokens) or tokens[index + 1] != "task":
+            continue
+        group = tokens[index + 2] if index + 2 < len(tokens) else ""
+        action = tokens[index + 3] if index + 3 < len(tokens) else ""
+        ref = tokens[index + 4] if index + 4 < len(tokens) else None
+        if group == "workspace" and action in WORKSPACE_ACTIONS:
+            item = {"name": "workspace", "action": action}
+            if action in WORKSPACE_REF_ACTIONS and ref:
+                item["task_ref"] = ref
+            subcommands.append(item)
+        elif group == "lease" and action in LEASE_ACTIONS:
+            item = {"name": "lease", "action": action}
+            if action in LEASE_REF_ACTIONS and ref:
+                item["task_ref"] = ref
+            subcommands.append(item)
     return subcommands
 
 

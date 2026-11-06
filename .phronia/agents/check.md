@@ -25,9 +25,10 @@ Before reviewing, read in this order:
 1. **Get the diff** — `git diff` / `git diff --staged` for uncommitted changes
 2. **Review against task artifacts** — does the diff satisfy `prd.md` (and `design.md` / `implement.md` if present)?
 3. **Review against specs** — naming, structure, type safety, error handling, conventions in `.phronia/spec/`
-4. **Self-fix** — when an issue is mechanical and small, fix it directly with the editing tools you have
-5. **Run verification** — project lint and typecheck on the changed scope
-6. **Report** — concrete findings with `file:line` citations and what was fixed vs. what is open
+4. **Verify spec intent, not spec writes** — a code task must not change `.phronia/spec/**`. Check that `spec-delta.md` exists when spec knowledge changed, that its target files are repo-relative under `.phronia/spec/`, and that the delta explains what the main session must apply after integration. A spec file in the diff is `SPEC_IN_CODE_TASK`; report it (and revert it only if the task owns that change).
+5. **Self-fix** — when an issue is mechanical and small, fix it directly with the editing tools you have
+6. **Run verification** — project lint and typecheck on the changed scope
+7. **Report** — concrete findings with `file:line` citations and what was fixed vs. what is open
 
 ## Forbidden Operations
 

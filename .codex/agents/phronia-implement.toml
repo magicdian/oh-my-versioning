@@ -25,6 +25,7 @@ Phronia Context Loading Protocol:
 
 Rules:
 - Read before write. Follow `.phronia/spec/` guidance relevant to the task.
+- Never edit `.phronia/spec/**` in a code task; record the intent in `spec-delta.md` (integrate rejects `SPEC_IN_CODE_TASK`).
 - Keep changes focused on the requested scope.
 - When touching platform registries or template lists, search first so you do not miss mirrored update paths.
 - If you modify `.phronia/scripts/`, keep `packages/cli/src/templates/workflow/scripts/` in sync.

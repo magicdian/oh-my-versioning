@@ -49,12 +49,25 @@ from .paths import (
 # Paths under .phronia/ that must NEVER be auto-staged. Listed here so the
 # warning to the user can show concrete subpaths to ignore individually
 # instead of ignoring the whole `.phronia/` tree.
+#
+# `.phronia/worktrees/` is the legacy root, kept because tasks created before
+# the default moved still live there. The new root is a repo-root sibling
+# (`.phronia-workspace/`), so it is not under `.phronia/` and is listed again
+# in PHRONIA_IGNORED_ROOT_SUBPATHS below.
 PHRONIA_IGNORED_SUBPATHS = (
     ".phronia/.backup-*",
     ".phronia/worktrees/",
     ".phronia/.template-hashes.json",
     ".phronia/.runtime/",
     ".phronia/.cache/",
+)
+
+# Repo-root paths that must never be auto-staged. Keeping the old and new
+# worktree roots here is deliberate: this is a conservative deny-list, so
+# listing a directory that does not exist costs nothing while missing one
+# stages an entire checkout.
+PHRONIA_IGNORED_ROOT_SUBPATHS = (
+    ".phronia-workspace/",
 )
 
 
@@ -288,7 +301,7 @@ def print_gitignore_warning(paths: list[str]) -> None:
         "[WARN] subpaths that should remain ignored, e.g.:",
         file=sys.stderr,
     )
-    for sub in PHRONIA_IGNORED_SUBPATHS:
+    for sub in (*PHRONIA_IGNORED_SUBPATHS, *PHRONIA_IGNORED_ROOT_SUBPATHS):
         print(f"[WARN]   {sub}", file=sys.stderr)
     print("[WARN]", file=sys.stderr)
     print(

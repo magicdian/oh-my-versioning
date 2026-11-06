@@ -1,6 +1,6 @@
 {
   "name": "phronia",
-  "version": "2610.28.3",
+  "version": "2611.5.1",
   "description": "Phronia project-local ZCode plugin: resolves the .phronia root and delegates context rendering to the Phronia CLI.",
   "author": {
     "name": "Phronia"

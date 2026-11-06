@@ -37,6 +37,7 @@ from .git import (
     branch_exists_locally,
     has_git_remote,
     index_lock_path,
+    main_worktree_root,
     resolve_default_branch,
     run_git,
     run_git_retry_index_lock,
@@ -1168,14 +1169,349 @@ def cmd_rename(args: argparse.Namespace) -> int:
 # Command: archive
 # =============================================================================
 
+# The shared worktree registry lives next to the integration lock so every
+# linked worktree of the same repository resolves the same file:
+# `<git-common-dir>/phronia/worktrees.json` (design.md §3.2, §19.6). The legacy
+# B11 registry and `task.json.worktree_path` are read-only fallbacks.
+_SHARED_RUNTIME_DIR_NAME = "phronia"
+_WORKTREE_REGISTRY_FILE_NAME = "worktrees.json"
+
+
+def _git_common_dir(repo_root: Path) -> Path | None:
+    """Resolve `git rev-parse --git-common-dir` to an absolute directory.
+
+    Git prints a path relative to the process cwd (usually `.git`), so it must
+    be resolved against the same cwd before it is used. Returns None when git
+    cannot answer, in which case the caller falls back to the legacy field.
+    """
+    rc, out, _ = run_git(["rev-parse", "--git-common-dir"], cwd=repo_root)
+    raw = out.strip()
+    if rc != 0 or not raw:
+        return None
+    common = Path(raw)
+    try:
+        return common.resolve() if common.is_absolute() else (repo_root / common).resolve()
+    except (OSError, ValueError):
+        return None
+
+
+def _canonical_task_ref(ref: str) -> str:
+    """Normalize a task ref the same way the CLI's `canonicalRef` does.
+
+    The registry may hold `.phronia/tasks/<dir>`, `tasks/<dir>`, `./tasks/<dir>`
+    or an absolute path depending on which command wrote it. Comparing
+    canonical strings keeps the lookup independent of that spelling.
+    """
+    value = (ref or "").strip().replace("\\", "/")
+    while value.startswith("./"):
+        value = value[2:]
+    while value.endswith("/"):
+        value = value[:-1]
+    if value.startswith(f"{DIR_TASKS}/"):
+        value = f"{DIR_WORKFLOW}/{value}"
+    return value
+
+
+def _ref_matches_task(ref: str, task_dir: Path) -> bool:
+    """Whether a registry task ref names `task_dir`."""
+    canonical = _canonical_task_ref(ref)
+    if canonical == f"{DIR_WORKFLOW}/{DIR_TASKS}/{task_dir.name}":
+        return True
+    try:
+        path = Path(canonical)
+    except (OSError, ValueError):
+        return False
+    # Absolute refs keep their machine path; the trailing tasks/<dir> is still
+    # exactly what identifies the task.
+    return path.name == task_dir.name and path.parent.name == DIR_TASKS
+
+
+def _load_worktree_registry(
+    repo_root: Path,
+) -> tuple[bool, list[dict]]:
+    """Read the shared registry.
+
+    Returns ``(available, entries)``. ``available`` is False when the file is
+    missing or unusable, which is the signal to fall back to the legacy
+    ``task.json.worktree_path``. An available registry with no matching entry
+    means the task has no worktree.
+    """
+    common_dir = _git_common_dir(repo_root)
+    if common_dir is None:
+        return False, []
+    registry_path = common_dir / _SHARED_RUNTIME_DIR_NAME / _WORKTREE_REGISTRY_FILE_NAME
+    data, _reason = read_json_checked(registry_path)
+    if not isinstance(data, dict):
+        return False, []
+    entries = data.get("worktrees")
+    if not isinstance(entries, list):
+        return False, []
+    return True, [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _resolve_task_worktree(
+    task_dir: Path,
+    task_data: dict,
+    repo_root: Path,
+) -> tuple[Path | None, bool]:
+    """Resolve the task's worktree path, preferring the shared registry.
+
+    Returns ``(path, used_legacy_field)``. A registry entry with an empty path
+    or a provisional entry without a task ref is ignored. When the registry is
+    unavailable, ``task.json.worktree_path`` (B11) is the last resort.
+    """
+    available, entries = _load_worktree_registry(repo_root)
+    if available:
+        for entry in entries:
+            ref = entry.get("taskRef")
+            if not isinstance(ref, str) or not ref.strip():
+                continue
+            if not _ref_matches_task(ref, task_dir):
+                continue
+            path = entry.get("path")
+            if isinstance(path, str) and path.strip():
+                return Path(path).expanduser(), False
+        return None, False
+
+    legacy = task_data.get("worktree_path")
+    if isinstance(legacy, str) and legacy.strip():
+        return Path(legacy).expanduser(), True
+    return None, False
+
+
+def _format_dirty_paths(status_output: str, limit: int = 10) -> str:
+    """Render `git status --porcelain` paths without dumping an unbounded list."""
+    lines = [line.rstrip() for line in status_output.splitlines() if line.strip()]
+    shown = lines[:limit]
+    rendered = "\n".join(f"  {line}" for line in shown)
+    if len(lines) > limit:
+        rendered += f"\n  ... and {len(lines) - limit} more"
+    return rendered
+
+
+def _guard_worktree_before_archive(
+    task_dir: Path,
+    repo_root: Path,
+    task_ref: str,
+) -> bool:
+    """Refuse or clean up a task worktree before the task leaves the active tree.
+
+    Lifecycle contract (PRD R8 / LIFE-01, design.md §4.5):
+
+    * dirty worktree      -> refuse; the user must commit or explicitly discard;
+    * clean, outcome=landed -> remove the worktree (the branch is kept);
+    * clean, not landed   -> refuse; integrate first or remove it explicitly.
+
+    A failed `git worktree remove` also refuses the archive so a broken
+    registry is never left behind silently. Tasks without a worktree keep the
+    pre-existing archive behavior.
+    """
+    task_json_path = task_dir / FILE_TASK_JSON
+    task_data: dict = {}
+    if task_json_path.is_file():
+        loaded, _reason = read_json_checked(task_json_path)
+        if isinstance(loaded, dict):
+            task_data = loaded
+
+    worktree, used_legacy = _resolve_task_worktree(task_dir, task_data, repo_root)
+    if worktree is None:
+        return True
+
+    if used_legacy:
+        print(
+            colored(
+                "Info: shared worktree registry unavailable; using the legacy "
+                "task.json.worktree_path field.",
+                Colors.YELLOW,
+            ),
+            file=sys.stderr,
+        )
+
+    if not worktree.is_dir():
+        print(
+            colored(
+                f"Warning: registered worktree does not exist: {worktree}. "
+                "Archive continues; the stale registry entry is left alone.",
+                Colors.YELLOW,
+            ),
+            file=sys.stderr,
+        )
+        return True
+
+    try:
+        worktree_resolved = worktree.resolve()
+    except (OSError, ValueError):
+        worktree_resolved = worktree
+
+    try:
+        repo_root_resolved = repo_root.resolve()
+    except (OSError, ValueError):
+        repo_root_resolved = repo_root
+
+    # `git worktree remove` deletes the directory; doing that from inside it
+    # would pull the filesystem out from under the running command.
+    if worktree_resolved == repo_root_resolved:
+        main_root = main_worktree_root(repo_root)
+        where = f"cd {main_root} && " if main_root is not None else ""
+        print(
+            colored(
+                f"Error: refusing to archive '{task_ref}' from inside its own "
+                f"worktree ({worktree}).",
+                Colors.RED,
+            ),
+            file=sys.stderr,
+        )
+        print(
+            f"Run the archive from the main checkout: {where}"
+            f"python3 {DIR_WORKFLOW}/scripts/task.py archive {task_ref}",
+            file=sys.stderr,
+        )
+        return False
+
+    rc, status_out, status_err = run_git(["status", "--porcelain"], cwd=worktree)
+    if rc != 0:
+        print(
+            colored(
+                f"Error: refusing to archive '{task_ref}': cannot inspect the "
+                f"worktree at {worktree}.",
+                Colors.RED,
+            ),
+            file=sys.stderr,
+        )
+        if status_err.strip():
+            print(status_err.strip(), file=sys.stderr)
+        print("Fix the git error above, then retry the archive.", file=sys.stderr)
+        return False
+
+    if status_out.strip():
+        print(
+            colored(
+                f"Error: refusing to archive '{task_ref}': its worktree has "
+                "uncommitted changes.",
+                Colors.RED,
+            ),
+            file=sys.stderr,
+        )
+        print(f"Worktree: {worktree}", file=sys.stderr)
+        print("Dirty paths:", file=sys.stderr)
+        print(_format_dirty_paths(status_out), file=sys.stderr)
+        print("Commit the work, then retry:", file=sys.stderr)
+        print(f"  cd {worktree} && phronia task commit {task_ref}", file=sys.stderr)
+        print("Or discard it explicitly (this deletes the worktree):", file=sys.stderr)
+        print(f"  phronia task worktree remove {task_ref} --force", file=sys.stderr)
+        return False
+
+    integration = task_data.get("meta", {})
+    integration = integration.get("integration", {}) if isinstance(integration, dict) else {}
+    outcome = integration.get("outcome") if isinstance(integration, dict) else None
+    if outcome != "landed":
+        rendered_outcome = outcome if isinstance(outcome, str) and outcome else "none"
+        print(
+            colored(
+                f"Error: refusing to archive '{task_ref}': its worktree is clean "
+                f"but the task has not landed (meta.integration.outcome={rendered_outcome}).",
+                Colors.RED,
+            ),
+            file=sys.stderr,
+        )
+        print(f"Worktree: {worktree}", file=sys.stderr)
+        print("Integrate the task first, then retry the archive:", file=sys.stderr)
+        print(f"  phronia task integrate {task_ref}", file=sys.stderr)
+        print("Or keep the branch and remove only the workspace:", file=sys.stderr)
+        print(f"  phronia task worktree remove {task_ref}", file=sys.stderr)
+        return False
+
+    rc, _remove_out, remove_err = run_git(
+        ["worktree", "remove", str(worktree)],
+        cwd=repo_root,
+    )
+    if rc != 0:
+        print(
+            colored(
+                f"Error: refusing to archive '{task_ref}': could not remove the "
+                f"worktree at {worktree}.",
+                Colors.RED,
+            ),
+            file=sys.stderr,
+        )
+        if remove_err.strip():
+            print(remove_err.strip(), file=sys.stderr)
+        print(
+            "The task was not archived and the registry was not modified. "
+            "Fix the git error, then retry.",
+            file=sys.stderr,
+        )
+        return False
+
+    print(
+        colored(f"Removed landed worktree: {worktree}", Colors.GREEN),
+        file=sys.stderr,
+    )
+    return True
+
+
 def _task_branch_field(data: dict, key: str) -> str:
     """Read a branch field as a trimmed string ("" when unset or not a string)."""
     value = data.get(key)
     return strip_blank(value) if isinstance(value, str) else ""
 
 
+def _resolve_task_branch(data: dict, task_dir: Path, repo_root: Path) -> str:
+    """Resolve the task's feature branch without writing it back.
+
+    Order (design.md §6): the explicit `task.json.branch`, then the shared
+    worktree registry entry for this task, then no branch. `task.json.branch`
+    and `task.json.worktree_path` are legacy fields; the registry is the
+    runtime source, so a worktree created by `ensure` exposes its branch here
+    even though `task.py start` no longer records one.
+    """
+    explicit = _task_branch_field(data, "branch")
+    if explicit:
+        return explicit
+
+    available, entries = _load_worktree_registry(repo_root)
+    if not available:
+        return ""
+    for entry in entries:
+        ref = entry.get("taskRef")
+        if not isinstance(ref, str) or not ref.strip():
+            continue
+        if not _ref_matches_task(ref, task_dir):
+            continue
+        branch = entry.get("branch")
+        if isinstance(branch, str) and strip_blank(branch):
+            return strip_blank(branch)
+    return ""
+
+
+def _landed_integration_commit(data: dict) -> str:
+    """Return `meta.integration.commit` only when the task landed.
+
+    `pushed` deliberately does not qualify: a PR is still open, so the commit
+    is not on the base branch yet and archive must keep refusing.
+    """
+    meta = data.get("meta")
+    integration = meta.get("integration") if isinstance(meta, dict) else None
+    if not isinstance(integration, dict):
+        return ""
+    if integration.get("outcome") != "landed":
+        return ""
+    commit = integration.get("commit")
+    return strip_blank(commit) if isinstance(commit, str) else ""
+
+
+def _resolve_archive_base_branch(data: dict, repo_root: Path) -> str:
+    """Base branch for the landed fallback: explicit value, else repo default."""
+    explicit = _task_branch_field(data, "base_branch")
+    if explicit:
+        return explicit
+    default = resolve_default_branch(repo_root)
+    return strip_blank(default) if isinstance(default, str) else ""
+
+
 def _validate_branch_metadata(
     data: dict,
+    task_dir: Path,
     task_name: str,
     repo_root: Path,
     skip: bool,
@@ -1194,8 +1530,14 @@ def _validate_branch_metadata(
     A recorded branch that no longer exists locally stays a warning: after a
     merge the feature branch is normally deleted, and refusing to archive then
     would be backwards.
+
+    The branch is resolved from `task.json.branch` and then from the shared
+    worktree registry (design.md §6). When neither has one, an integration
+    outcome of `landed` plus an ancestor reachable from the base branch proves
+    the work is in the base history, so a dedicated branch is no longer
+    required. `task.json.branch` is never written back.
     """
-    branch = _task_branch_field(data, "branch")
+    branch = _resolve_task_branch(data, task_dir, repo_root)
     base_branch = _task_branch_field(data, "base_branch")
     task_py = f"python3 {DIR_WORKFLOW}/scripts/task.py"
 
@@ -1232,26 +1574,113 @@ def _validate_branch_metadata(
         )
         return False
 
-    if not branch and base_branch and has_git_remote(repo_root):
+    if not branch:
+        # Landed tasks whose worktree was removed may no longer have a branch
+        # anywhere. Trust git ancestry over absent metadata: if the recorded
+        # integration commit is reachable from the base branch, the work is
+        # already in the base history.
+        landed_commit = _landed_integration_commit(data)
+        base = _resolve_archive_base_branch(data, repo_root)
+        if (
+            landed_commit
+            and base
+            and run_git(
+                ["merge-base", "--is-ancestor", landed_commit, base],
+                cwd=repo_root,
+            )[0]
+            == 0
+        ):
+            print(
+                colored(
+                    "Info: landed without a dedicated branch (verified by "
+                    "integration metadata).",
+                    Colors.GREEN,
+                ),
+                file=sys.stderr,
+            )
+            return True
+
+        if base_branch and has_git_remote(repo_root):
+            print(
+                colored(
+                    f"Error: refusing to archive '{task_name}': no branch is recorded, "
+                    f"but the task targets base_branch '{base_branch}' in a repo with a "
+                    "remote — the branch it was built on was never written down.",
+                    Colors.RED,
+                ),
+                file=sys.stderr,
+            )
+            print("Repair with:", file=sys.stderr)
+            print(f"  {task_py} set-branch {task_name} <branch>", file=sys.stderr)
+            print(
+                f"  {task_py} archive {task_name} --skip-branch-validation"
+                "   # only if the work landed without a branch of its own",
+                file=sys.stderr,
+            )
+            return False
+
+    return True
+
+
+def _validate_spec_sync(
+    task_dir: Path,
+    data: dict,
+    skip: bool,
+) -> bool:
+    """Refuse an archive while a spec delta has not been synced.
+
+    A task with `spec-delta.md` carries intent that the control plane has not
+    applied yet. Archiving it loses the only pointer to that work, so the gate
+    is explicit: run `phronia task spec commit`, or pass `--skip-spec-sync`
+    (recorded in the task notes) for a delta that should be dropped.
+    """
+    delta = task_dir / "spec-delta.md"
+    if not delta.is_file():
+        return True
+
+    meta = data.get("meta")
+    spec_sync = meta.get("spec_sync") if isinstance(meta, dict) else None
+    status = spec_sync.get("status") if isinstance(spec_sync, dict) else None
+    if status == "synced":
+        return True
+
+    task_label = task_dir.name
+    if skip:
+        reason = "spec sync skipped at archive (--skip-spec-sync)"
+        existing = data.get("notes")
+        data["notes"] = (
+            f"{existing.rstrip()}\n{reason}" if isinstance(existing, str) and existing.strip() else reason
+        )
         print(
             colored(
-                f"Error: refusing to archive '{task_name}': no branch is recorded, "
-                f"but the task targets base_branch '{base_branch}' in a repo with a "
-                "remote — the branch it was built on was never written down.",
-                Colors.RED,
+                f"Warning: archiving '{task_label}' without spec sync (--skip-spec-sync).",
+                Colors.YELLOW,
             ),
             file=sys.stderr,
         )
-        print("Repair with:", file=sys.stderr)
-        print(f"  {task_py} set-branch {task_name} <branch>", file=sys.stderr)
-        print(
-            f"  {task_py} archive {task_name} --skip-branch-validation"
-            "   # only if the work landed without a branch of its own",
-            file=sys.stderr,
-        )
-        return False
+        return True
 
-    return True
+    rendered_status = status if isinstance(status, str) and status else "none"
+    print(
+        colored(
+            f"Error: refusing to archive '{task_label}': SPEC_SYNC_PENDING — "
+            f"spec-delta.md exists but meta.spec_sync.status={rendered_status}.",
+            Colors.RED,
+        ),
+        file=sys.stderr,
+    )
+    print(
+        "Apply the delta in the main checkout, then retry the archive:",
+        file=sys.stderr,
+    )
+    print(f"  phronia task spec plan {task_label}", file=sys.stderr)
+    print(f"  phronia task spec commit {task_label}", file=sys.stderr)
+    print(
+        f"  python3 {DIR_WORKFLOW}/scripts/task.py archive {task_label} --skip-spec-sync"
+        "   # only if the delta should be dropped",
+        file=sys.stderr,
+    )
+    return False
 
 
 def cmd_archive(args: argparse.Namespace) -> int:
@@ -1312,6 +1741,17 @@ def cmd_archive(args: argparse.Namespace) -> int:
         return 1
 
     dir_name = task_dir.name
+
+    # Lifecycle guard: a task must not leave the active tree while its worktree
+    # still holds uncommitted work or unlanded commits. Runs before any status
+    # mutation so a refusal leaves task.json untouched.
+    if not _guard_worktree_before_archive(task_dir, repo_root, dir_name):
+        print(
+            f"Not archived: {_repo_relative_path(task_dir, repo_root)} is unchanged.",
+            file=sys.stderr,
+        )
+        return 1
+
     task_json_path = task_dir / FILE_TASK_JSON
 
     # Update status before archiving
@@ -1338,9 +1778,21 @@ def cmd_archive(args: argparse.Namespace) -> int:
             # task leaves the active tree. Stale branches only warn.
             if not _validate_branch_metadata(
                 data,
+                task_dir,
                 task_name,
                 repo_root,
                 getattr(args, "skip_branch_validation", False),
+            ):
+                print(
+                    f"Not archived: {_repo_relative_path(task_dir, repo_root)} is unchanged.",
+                    file=sys.stderr,
+                )
+                return 1
+
+            if not _validate_spec_sync(
+                task_dir,
+                data,
+                bool(getattr(args, "skip_spec_sync", False)),
             ):
                 print(
                     f"Not archived: {_repo_relative_path(task_dir, repo_root)} is unchanged.",
