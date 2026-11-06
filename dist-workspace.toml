@@ -30,3 +30,10 @@ targets = [
 ]
 # Where to host releases
 hosting = "github"
+
+# GitHub retired the `macos-14` label from its public runner pool, so dist's
+# default for aarch64-apple-darwin no longer resolves and the job is cancelled
+# before any runner picks it up (runner_name empty, zero steps). Pin the arm64
+# macOS build to a label that still exists; unlisted targets keep dist defaults.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
