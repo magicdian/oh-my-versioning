@@ -170,7 +170,9 @@ pub fn required_omv_for(config: &OmvConfig) -> &'static str {
 }
 
 /// Every gated `(key, value, minimum_omv)` triple in a config.
-fn gated_values(config: &OmvConfig) -> impl Iterator<Item = (&'static str, &'static str, Option<&'static str>)> {
+fn gated_values(
+    config: &OmvConfig,
+) -> impl Iterator<Item = (&'static str, &'static str, Option<&'static str>)> {
     [
         (
             "release_mode",

@@ -38,9 +38,10 @@ pub fn strongest_requirement<'a, I>(requirements: I) -> Option<&'a str>
 where
     I: IntoIterator<Item = Option<&'a str>>,
 {
-    requirements.into_iter().flatten().max_by(|left, right| {
-        compare_versions(left, right).unwrap_or(Ordering::Equal)
-    })
+    requirements
+        .into_iter()
+        .flatten()
+        .max_by(|left, right| compare_versions(left, right).unwrap_or(Ordering::Equal))
 }
 
 /// A configuration file that demands a newer `omv` than the running binary.
@@ -174,7 +175,10 @@ mod tests {
 
     #[test]
     fn treats_missing_segments_as_zero() {
-        assert_eq!(compare_versions("2611.2", "2611.2.0"), Some(Ordering::Equal));
+        assert_eq!(
+            compare_versions("2611.2", "2611.2.0"),
+            Some(Ordering::Equal)
+        );
     }
 
     #[test]

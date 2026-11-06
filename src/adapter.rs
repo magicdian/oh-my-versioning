@@ -1280,8 +1280,7 @@ fn canonical_sources(release_mode: ReleaseMode) -> Vec<(&'static str, String)> {
 /// The wording matters: the previous text only said finalize events were
 /// read-only, which reads as "call it and ignore the result". This states the
 /// action is pointless and forbids it.
-const PIPELINE_FINALIZE_INSTRUCTION: &str =
-    "- Do not call the OMV finalize-boundary helper or `omv bump`; the release pipeline assigns versions. Local version writes are rejected, and a finalize call only records a pending entry that never bumps.";
+const PIPELINE_FINALIZE_INSTRUCTION: &str = "- Do not call the OMV finalize-boundary helper or `omv bump`; the release pipeline assigns versions. Local version writes are rejected, and a finalize call only records a pending entry that never bumps.";
 
 fn pipeline_safe_source(content: String) -> String {
     let content = bump_wording_to_pipeline(content);
@@ -1651,7 +1650,11 @@ mod tests {
         let twice = super::pipeline_safe_source(once.clone());
 
         assert_eq!(once, twice);
-        assert_eq!(once.matches("Do not call the OMV finalize-boundary helper").count(), 1);
+        assert_eq!(
+            once.matches("Do not call the OMV finalize-boundary helper")
+                .count(),
+            1
+        );
     }
 
     #[test]

@@ -365,8 +365,8 @@ ntp_enabled = true
         // Both shipped values must load; a gate that rejects its own table
         // would make the feature unusable.
         for mode in ["local", "pipeline"] {
-        let raw = format!(
-            r#"schema_version = 1
+            let raw = format!(
+                r#"schema_version = 1
 requires_omv = "2611.2.1"
 locale = "en-US"
 timezone = "UTC+0"
@@ -376,7 +376,7 @@ version_output = "date-triplet"
 build_policy = "daily-reset"
 ntp_enabled = false
 "#
-        );
+            );
             fs::write(&path, raw).expect("should write config fixture");
 
             let loaded = load_config(&root).expect("supported release mode should load");
