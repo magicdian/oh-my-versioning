@@ -42,6 +42,100 @@ Accepted values:
 A missing key means `local`, so upgrading OMV does not change an existing
 project. An invalid value fails with `invalid_release_mode`.
 
+### 2.1 `requires_omv`
+
+`release_mode = "pipeline"` only exists from `omv 2611.2.1`. An older binary
+cannot detect the mismatch by comparing value tables — it simply does not have
+`pipeline` in its `ReleaseMode` enum, so `ReleaseMode::parse("pipeline")` returns
+`None` and the loader falls back to the `Default` (`local`). The guard then never
+runs, and a pipeline project silently accepts local version writes.
+
+Nothing compiled into the binary can fix that, because the binary that needs
+protecting is the one that predates the fix. The project therefore declares its
+own minimum in the config file, which every binary — old or new — can read:
+
+```toml
+schema_version = 1
+requires_omv = "2611.2.1"
+release_mode = "pipeline"
+```
+
+`omv init` and `omv integrate apply` write this automatically:
+`local` projects declare the baseline `0.0.1`, `pipeline` projects declare
+`2611.2.1`.
+
+Enforcement happens in `load_config` before any typed field is parsed. A binary
+older than the declared version exits with:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "unsupported_config_capability",
+    "message": ".omv/config.toml declares release_mode = \"pipeline\", which needs omv >= 2611.2.1, but this binary is 2610.27.2; upgrade omv (npm install -g @magicdian/omv@latest) to read this project",
+    "details": {
+      "field": "release_mode",
+      "value": "pipeline",
+      "required_version": "2611.2.1",
+      "current_version": "2610.27.2"
+    }
+  }
+}
+```
+
+The check is deliberately one-directional: a *newer* binary reading an older
+config is always fine, and an absent `requires_omv` keeps every pre-existing
+config loadable. A malformed declaration fails closed with
+`malformed_config_requirement` — the key decides whether the file may be read at
+all, so a typo in it must not silently disable the check.
+
+**Scope, stated plainly.** This key protects every release from the one that
+introduces it onwards. It cannot protect a binary that predates the key: that
+binary has no arm for an unknown key and ignores it, which is why the
+`omv@2610.27.2` failure was possible in the first place. Existing projects gain
+the declaration by running `omv integrate apply`, which backfills it. A project
+that never runs it stays unprotected.
+
+#### How the declaration is derived
+
+A config file is read as a whole: a release either understands all of it or none
+of it. So a single number covers every key — the strictest requirement across the
+gated values, not one entry per key:
+
+```toml
+requires_omv = "2612.1.1"   # max of the requirements below
+release_mode  = "pipeline"  # -> 2611.2.1
+some_future_key = "..."     # -> 2612.1.1  (this one decides)
+```
+
+Each gated enum implements `ConfigCapability::minimum_omv`, and
+`required_omv_for(&OmvConfig)` takes the maximum. Adding a new gated value means
+adding one arm to its `minimum_omv` match — the match is exhaustive, so the
+compiler refuses a new variant that forgot to declare its release — plus one line
+in `required_omv_for`'s field list.
+
+That last list is maintained by hand, so `load_config` cross-checks it. After
+parsing, it compares the file's declaration against what its values actually need
+and rejects an understated one:
+
+```json
+{
+  "code": "config_declaration_mismatch",
+  "message": ".omv/config.toml declares requires_omv = \"0.0.1\" but its values need omv >= 2611.2.1; run `omv integrate apply` to rewrite the declaration",
+  "details": { "declared": "0.0.1", "actual": "2611.2.1" }
+}
+```
+
+This catches both a `required_omv_for` that missed a new field and a hand-edited
+declaration. A declaration *stronger* than needed is legal but still triggers the
+upgrade prompt, because the running binary genuinely cannot honour a file that
+claims to need a later release.
+
+Practical consequence: the requirement is monotonic and project-wide. One project
+using a newer key forces every contributor on that project to run an `omv` at
+least that new. That is the intended trade — version mismatch surfaces at the
+first read instead of silently landing as a bad version bump.
+
 `release_mode` is independent of `project_profile`:
 
 - `project_profile` describes the project (personal, oss, ...).

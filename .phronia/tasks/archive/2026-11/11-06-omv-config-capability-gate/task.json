@@ -1,0 +1,38 @@
+{
+  "id": "omv-config-capability-gate",
+  "name": "omv-config-capability-gate",
+  "title": "OMV 配置能力门控与 pipeline 提示词收敛",
+  "description": "在 core 层引入配置能力门控：旧版本 omv 读到不认识的 release_mode 等超前配置项时必须硬失败并提示升级，而不是静默降级为默认值；同时收敛 pipeline 模式的提示词，不再要求 agent 调用注定 no-op 的 finalize-boundary。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "magicdian",
+  "assignee": "magicdian",
+  "createdAt": "2026-11-06",
+  "completedAt": "2026-11-06",
+  "branch": "dev",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "spec sync skipped at archive (--skip-spec-sync)",
+  "meta": {
+    "integration": {
+      "mode": "local",
+      "outcome": "landed",
+      "base_sha": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
+      "commit": "8ea07746e3b9132e174a4153e4fc4a0778059f2e",
+      "pr_url": null,
+      "verified": true,
+      "last_error": null,
+      "log_ref": ".phronia/.runtime/integration-logs/omv-config-capability-gate-2026-11-06T04-31-59-286Z.log",
+      "updated_at": "2026-11-06T04:32:00.915Z"
+    }
+  }
+}

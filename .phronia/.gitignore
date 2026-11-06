@@ -10,7 +10,9 @@
 # Runtime adapter manifest (machine-local detection result)
 manifest.json
 
-# Task worktrees (each contains its own checkout)
+# Legacy task worktrees (kept so pre-existing checkouts stay ignored).
+# The current default root (`.phronia-workspace/`) lives at the repository
+# root and is ignored there by Phronia's managed `# PHRONIA:START` block.
 worktrees/
 
 # Ralph Loop state file

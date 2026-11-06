@@ -70,11 +70,16 @@ evaluate as `missing`. Draft rules are advisory and need no verdict.
 - [ ] Bug fix → regression test added?
 - [ ] Changed behavior → existing tests updated?
 
-### Spec Sync
+### Spec Delta
 
-- [ ] Does `.phronia/spec/` need updates? (new patterns, conventions, lessons learned)
+Spec is control-plane state; the task branch must not carry spec writes.
 
-> "If I fixed a bug or discovered something non-obvious, should I document it so future me won't hit the same issue?" → If YES, update the relevant spec doc.
+- [ ] Does the task produce spec knowledge? If yes, is it recorded in `.phronia/tasks/<ref>/spec-delta.md` rather than `.phronia/spec/**`?
+- [ ] Does every `## Target files` entry resolve to a repo-relative path under `.phronia/spec/` and match the intended change?
+- [ ] Is the delta complete enough for the main session to apply after integration (intent, rationale, verification)?
+- [ ] Does the diff contain any `.phronia/spec/**` change? That is `SPEC_IN_CODE_TASK`; revert it and move the intent into the delta. Do not "fix" it by editing spec in the task branch.
+
+> "If I fixed a bug or discovered something non-obvious, should I document it so future me won't hit the same issue?" → If YES, write it into `spec-delta.md`; the main session applies it after the code lands.
 
 ### Scope Discipline
 

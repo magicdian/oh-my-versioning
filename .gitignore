@@ -9,3 +9,8 @@
 
 # Local npm install of the OMV CLI
 node_modules/
+
+# PHRONIA:START
+# Task worktrees created by `phronia task workspace ensure`
+/.phronia-workspace/
+# PHRONIA:END

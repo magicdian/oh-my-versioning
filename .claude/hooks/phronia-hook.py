@@ -156,11 +156,33 @@ def _apply_effects(response: dict[str, Any]) -> None:
                 pass
 
 
+def _deny_reason(mutation: dict[str, Any]) -> str:
+    """Self-contained deny text (ZCode delivers it as the tool error)."""
+    code = str(mutation.get("code") or "DISPATCH_DENIED")
+    lines = [f"{code}: {mutation.get('reason') or ''}"]
+    next_steps = mutation.get("next") or []
+    if isinstance(next_steps, list) and next_steps:
+        lines.append("Next:")
+        lines.extend(f"{index}. {step}" for index, step in enumerate(next_steps, 1))
+    lines.append("Do not retry; report this exactly.")
+    return "\n".join(lines)
+
+
 def _render_mutation(platform: str, payload: dict[str, Any], response: dict[str, Any]) -> str:
     mutations = response.get("mutations", [])
     if not mutations:
         return ""
     mutation = mutations[0]
+    if mutation.get("op") == "deny":
+        return json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": _deny_reason(mutation),
+                }
+            }
+        )
     value = mutation.get("value", "")
     tool_input = payload.get("tool_input") or payload.get("toolInput") or {}
     if not isinstance(tool_input, dict):

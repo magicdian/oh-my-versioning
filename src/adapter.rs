@@ -82,6 +82,64 @@ struct CanonicalTarget {
     behavior: SourceInstallBehavior,
 }
 
+/// Describes what a finalize-boundary call actually does in this release mode.
+///
+/// `contract.json` is often the only OMV surface an agent reads, so a pipeline
+/// project must not advertise finalize-boundary as a version writer.
+fn finalize_boundary_mode_behavior(release_mode: ReleaseMode) -> serde_json::Value {
+    match release_mode {
+        ReleaseMode::Local => json!({
+            "mode": "local",
+            "assigns_version": true,
+            "call_required": true,
+            "notes": "Call at the commit confirmation boundary with an explicit change_type."
+        }),
+        ReleaseMode::Pipeline => json!({
+            "mode": "pipeline",
+            "assigns_version": false,
+            "call_required": false,
+            "result": "pending",
+            "reason": "release-pipeline-owns-version",
+            "notes": "The release pipeline assigns versions. A finalize call is recorded as pending and never bumps locally, so do not call it."
+        }),
+    }
+}
+
+/// The `write` entry for a command that mutates version surfaces.
+///
+/// In pipeline mode these commands are denied to everyone but the release job,
+/// so advertising them under `write` contradicts `release_mode_behavior`. They
+/// are reported as empty, matching `RELEASE_PIPELINE.md`'s command matrix and the
+/// runtime `release_mode_denied` error.
+fn version_write_commands(
+    release_mode: ReleaseMode,
+    commands: impl IntoIterator<Item = &'static str>,
+) -> serde_json::Value {
+    match release_mode {
+        ReleaseMode::Local => json!(commands.into_iter().collect::<Vec<_>>()),
+        ReleaseMode::Pipeline => json!([]),
+    }
+}
+
+/// Rebuilds a command entry so pipeline mode reports it as denied.
+fn version_write_command(
+    release_mode: ReleaseMode,
+    command: &'static str,
+    mut entry: serde_json::Value,
+) -> serde_json::Value {
+    if release_mode == ReleaseMode::Pipeline {
+        let object = entry
+            .as_object_mut()
+            .expect("command entries are JSON objects");
+        object.insert(String::from("write"), json!([]));
+        object.insert(
+            String::from("denied_in_pipeline"),
+            json!([format!("omv {command} --json")]),
+        );
+    }
+    entry
+}
+
 pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
     let ai_root = omv_root.join(AI_DIR);
     let release_mode = storage::config::load_config(omv_root)
@@ -103,14 +161,22 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                 "read": ["omv sync --check --json", "omv sync --check --output json"],
                 "mutates": false
             },
-            "bump": {
-                "write": ["omv bump --json", "omv bump --output json"],
-                "syncs_targets": true
-            },
-            "sync": {
-                "write": ["omv sync --json", "omv sync --output json"],
-                "syncs_targets": true
-            },
+            "bump": version_write_command(
+                release_mode,
+                "bump",
+                json!({
+                    "write": ["omv bump --json", "omv bump --output json"],
+                    "syncs_targets": true
+                }),
+            ),
+            "sync": version_write_command(
+                release_mode,
+                "sync",
+                json!({
+                    "write": ["omv sync --json", "omv sync --output json"],
+                    "syncs_targets": true
+                }),
+            ),
             "integrate_status": {
                 "read": ["omv integrate status --json", "omv integrate status --output json"],
                 "mutates": false,
@@ -123,7 +189,10 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                 "state_file": ".omv/integrations.toml"
             },
             "finalize_boundary": {
-                "write": ["omv event finalize-boundary --provider <provider> --boundary <name> --change-type <type> --json"],
+                "write": version_write_commands(
+                    release_mode,
+                    ["omv event finalize-boundary --provider <provider> --boundary <name> --change-type <type> --json"],
+                ),
                 "identity_fields": ["provider", "boundary"],
                 "source_mapping": "<provider>-<boundary>",
                 "task_identity": {
@@ -148,7 +217,10 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
                 "change_type_values": ["bugfix", "feature", "refactor", "docs", "chore"],
                 "does_not_infer_change_type": true,
                 "missing_change_type": "pending/manual-action without finalize-task",
-                "delegates_to": "omv event finalize-task"
+                "delegates_to": "omv event finalize-task",
+                // In pipeline mode a finalize call can never assign a version;
+                // advertising only the write form made agents call a no-op.
+                "release_mode_behavior": finalize_boundary_mode_behavior(release_mode),
             }
         },
         "adapter_command": {
@@ -250,7 +322,7 @@ pub fn ensure_canonical_artifacts(omv_root: &Path) -> Result<(), OmvError> {
             "- At completion boundaries (during commit confirmation when a unit of work is complete), use the OMV finalize-boundary helper advertised in `.omv/ai/contract.json`; provide an explicit `change_type` value and do not infer or default it."
         }
         ReleaseMode::Pipeline => {
-            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version, so do not expect a local bump."
+            "- Do not call the OMV finalize-boundary helper or `omv bump`; the release pipeline assigns versions. Local version writes are rejected, and finalize calls would only record a pending entry that never bumps."
         }
     };
     let lockfile_line = match release_mode {
@@ -373,7 +445,37 @@ pub fn refresh_selected(
     install_selected(omv_root, project_root, &effective)
 }
 
-pub fn trellis_finish_work_finalize_block(is_v05_or_later: bool) -> String {
+/// Finalize-boundary guidance for any host when the release pipeline owns
+/// versions.
+///
+/// A pipeline project has no local bump to verify, so every bump instruction is
+/// replaced by the one thing finish-work can still usefully check: that the
+/// committed manifests agree with `.omv/state.toml`.
+fn pipeline_finish_work_finalize_block() -> String {
+    [
+        "## OMV Finalize Boundary (Pipeline — run BEFORE archive)",
+        "",
+        "`release_mode = \"pipeline\"`: the release pipeline assigns versions. Do NOT run `omv bump`, `omv sync`, or `omv event finalize-boundary` here; local version writes are rejected.",
+        "",
+        "- [ ] Run `omv current --json` and confirm the version matches what the release pipeline last published.",
+        "- [ ] Run `omv sync --check --json`. Drift means a manifest disagrees with `.omv/state.toml`; surface it and resolve before archiving.",
+        "- [ ] Do not change `.omv/state.toml`, `Cargo.toml`, or generated version files by hand.",
+    ]
+    .join("\n")
+}
+
+pub fn trellis_finish_work_finalize_block(
+    is_v05_or_later: bool,
+    release_mode: ReleaseMode,
+) -> String {
+    if release_mode == ReleaseMode::Pipeline {
+        // The release pipeline owns versions, so finish-work must not bump
+        // regardless of the Trellis generation. Without this branch a v0.4
+        // project under `release_mode = "pipeline"` received the full
+        // "primary trigger for OMV version updates" checklist.
+        return pipeline_finish_work_finalize_block();
+    }
+
     if is_v05_or_later {
         // Trellis v0.5+: the OMV version bump already happens at the Phase 3.4
         // commit-confirmation boundary. Finish-work must NOT bump again, so this
@@ -409,11 +511,15 @@ pub fn trellis_finish_work_finalize_block(is_v05_or_later: bool) -> String {
     .join("\n")
 }
 
-pub fn upsert_trellis_finish_work_finalize_block(existing: &str, is_v05_or_later: bool) -> String {
+pub fn upsert_trellis_finish_work_finalize_block(
+    existing: &str,
+    is_v05_or_later: bool,
+    release_mode: ReleaseMode,
+) -> String {
     upsert_finish_work_finalize_block(
         existing,
         TRELLIS_FINISH_WORK_BLOCK_NAME,
-        &trellis_finish_work_finalize_block(is_v05_or_later),
+        &trellis_finish_work_finalize_block(is_v05_or_later, release_mode),
         "\n## Quick Check Flow",
     )
 }
@@ -436,11 +542,19 @@ pub fn phronia_finish_work_finalize_block() -> String {
     .join("\n")
 }
 
-pub fn upsert_phronia_finish_work_finalize_block(existing: &str) -> String {
+pub fn upsert_phronia_finish_work_finalize_block(
+    existing: &str,
+    release_mode: ReleaseMode,
+) -> String {
+    let block_body = if release_mode == ReleaseMode::Pipeline {
+        pipeline_finish_work_finalize_block()
+    } else {
+        phronia_finish_work_finalize_block()
+    };
     upsert_finish_work_finalize_block(
         existing,
         PHRONIA_FINISH_WORK_BLOCK_NAME,
-        &phronia_finish_work_finalize_block(),
+        &block_body,
         "\n## Step 1:",
     )
 }
@@ -1160,7 +1274,21 @@ fn canonical_sources(release_mode: ReleaseMode) -> Vec<(&'static str, String)> {
     }
 }
 
+/// Sentence that replaces every "call the finalize-boundary helper" instruction
+/// in pipeline mode.
+///
+/// The wording matters: the previous text only said finalize events were
+/// read-only, which reads as "call it and ignore the result". This states the
+/// action is pointless and forbids it.
+const PIPELINE_FINALIZE_INSTRUCTION: &str = "- Do not call the OMV finalize-boundary helper or `omv bump`; the release pipeline assigns versions. Local version writes are rejected, and a finalize call only records a pending entry that never bumps.";
+
 fn pipeline_safe_source(content: String) -> String {
+    let content = bump_wording_to_pipeline(content);
+    finalize_wording_to_pipeline(content)
+}
+
+/// Rewrites local-mode version-write instructions so they describe the pipeline.
+fn bump_wording_to_pipeline(content: String) -> String {
     content
         .replace(
             "and `omv bump --json` to update it.",
@@ -1187,21 +1315,43 @@ fn pipeline_safe_source(content: String) -> String {
             "- Do not run `omv bump` or `omv sync` locally; the release pipeline owns writes.",
         )
         .replace(
-            "- If the Trellis finalize-boundary capability is installed: for Trellis v0.5+ the finalize-boundary bump happens at the Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/trellis:finish-work` (whose OMV block is verification-only). For Trellis v0.4.x, `/trellis:finish-work` remains the bump trigger (legacy behavior). Supply an explicit `change_type`; do not infer it.",
-            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
-        )
-        .replace(
-            "- The OMV finalize-boundary bump happens at the Phronia Phase 3.4 commit-confirmation boundary (`omv event finalize-boundary --provider <agent> --boundary commit ...`) with an explicit `change_type`, NOT at `/phronia:finish-work` (whose OMV block is verification-only). Supply an explicit `change_type`; do not infer it.",
-            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
-        )
-        .replace(
-            "- At completion boundaries (during commit confirmation when a unit of work is complete), call the OMV finalize-boundary helper from `.omv/ai/contract.json` with an explicit `change_type`. For Trellis v0.5+ and for Phronia this runs at the commit-confirmation boundary, not at the framework finish-work command (which only verifies the commit-boundary bump). Otherwise, call it manually after tests pass.",
-            "- Finalize events are read-only in `release_mode=pipeline`; the release pipeline assigns the version.",
-        )
-        .replace(
             "- After a semantic bump, run the project build command (e.g. `cargo build` for Rust, `npm install` for Node) to refresh lock files, then commit the OMV-generated files (`.omv/state.toml`, `.omv/finalizations.toml`, lock files like `Cargo.lock`, generated version files) together.",
             "- The release job must run the project build command after bumping and commit the OMV-generated files together.",
         )
+}
+
+/// Rewrites every finalize-boundary instruction into a single prohibition.
+///
+/// Matching is line-based: any line that mentions the finalize-boundary helper
+/// or `omv event finalize-boundary` is replaced wholesale. Anchoring on the whole
+/// sentence used to break silently whenever the source wording changed, which is
+/// how pipeline projects kept shipping a "go bump" instruction.
+fn finalize_wording_to_pipeline(content: String) -> String {
+    let mut rewritten = Vec::new();
+    for line in content.lines() {
+        if mentions_finalize_boundary(line) {
+            // Collapse consecutive finalize lines onto the single replacement so
+            // adapters that carry two near-duplicate sentences do not emit it
+            // twice.
+            if rewritten.last().map(String::as_str) != Some(PIPELINE_FINALIZE_INSTRUCTION) {
+                rewritten.push(PIPELINE_FINALIZE_INSTRUCTION.to_owned());
+            }
+        } else {
+            rewritten.push(line.to_owned());
+        }
+    }
+
+    let mut result = rewritten.join("\n");
+    if content.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn mentions_finalize_boundary(line: &str) -> bool {
+    line.contains("finalize-boundary helper")
+        || line.contains("omv event finalize-boundary")
+        || line.contains("finalize-boundary bump")
 }
 
 #[cfg(test)]
@@ -1281,6 +1431,233 @@ mod tests {
     }
 
     #[test]
+    fn pipeline_mode_never_asks_agents_to_call_finalize_boundary() {
+        let omv_root = temp_omv_root("canonical-pipeline-finalize");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let instructions = fs::read_to_string(omv_root.join("ai/instructions.md"))
+            .expect("instructions should exist");
+        assert!(
+            !has_imperative_finalize_call(&instructions),
+            "pipeline instructions must not instruct agents to call finalize-boundary"
+        );
+        assert!(instructions.contains("Do not call the OMV finalize-boundary helper"));
+
+        // Every projected source is generated from the same rewrite; none may
+        // keep an imperative finalize instruction.
+        for relative in [
+            "ai/adapters/claude/SKILL.md",
+            "ai/adapters/codex/AGENTS.md",
+            "ai/adapters/codex/SKILL.md",
+            "ai/adapters/project-instructions.md",
+            "ai/adapters/trellis/guide.md",
+            "ai/adapters/phronia/guide.md",
+        ] {
+            let content = fs::read_to_string(omv_root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} should exist"));
+            assert!(
+                !has_imperative_finalize_call(&content),
+                "{relative} still instructs agents to call finalize-boundary"
+            );
+        }
+
+        cleanup_root(&omv_root);
+    }
+
+    /// True when a line tells the reader to *call* finalize-boundary rather than
+    /// telling them not to. Negated lines are the desired pipeline output.
+    fn has_imperative_finalize_call(content: &str) -> bool {
+        content.lines().any(|line| {
+            let lower = line.to_ascii_lowercase();
+            let mentions = lower.contains("finalize-boundary helper")
+                || lower.contains("omv event finalize-boundary");
+            let negated = lower.contains("do not call")
+                || lower.contains("do not run")
+                || lower.contains("must not")
+                || lower.contains("never");
+            mentions && !negated
+        })
+    }
+
+    #[test]
+    fn pipeline_contract_marks_finalize_boundary_as_non_bumping() {
+        let omv_root = temp_omv_root("canonical-pipeline-contract");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let contract =
+            fs::read_to_string(omv_root.join("ai/contract.json")).expect("contract should exist");
+        assert!(contract.contains("\"assigns_version\": false"));
+        assert!(contract.contains("\"call_required\": false"));
+        assert!(contract.contains("release-pipeline-owns-version"));
+
+        cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn local_contract_keeps_finalize_boundary_as_a_version_writer() {
+        let omv_root = temp_omv_root("canonical-local-contract");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Local,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let contract =
+            fs::read_to_string(omv_root.join("ai/contract.json")).expect("contract should exist");
+        assert!(contract.contains("\"assigns_version\": true"));
+        assert!(contract.contains("\"call_required\": true"));
+
+        let instructions = fs::read_to_string(omv_root.join("ai/instructions.md"))
+            .expect("instructions should exist");
+        assert!(instructions.contains("finalize-boundary helper"));
+
+        cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn pipeline_mode_removes_every_bump_instruction_from_finish_work_blocks() {
+        // Trellis v0.4 is the dangerous one: its local block calls finish-work
+        // "the primary trigger for OMV version updates".
+        for is_v05 in [false, true] {
+            let block = super::trellis_finish_work_finalize_block(is_v05, ReleaseMode::Pipeline);
+            assert!(
+                !block.contains("omv event finalize-boundary --provider"),
+                "pipeline Trellis block (v05={is_v05}) still invokes finalize-boundary"
+            );
+            assert!(
+                !block.contains("primary trigger for OMV version updates"),
+                "pipeline Trellis block (v05={is_v05}) still presents itself as the bump trigger"
+            );
+            assert!(!block.contains("omv sync --json"));
+            assert!(block.contains("omv sync --check --json"));
+            assert!(block.contains("release pipeline assigns versions"));
+        }
+
+        let phronia = upsert_phronia_finish_work_finalize_block("", ReleaseMode::Pipeline);
+        assert!(!phronia.contains("omv event finalize-boundary --provider"));
+        assert!(!phronia.contains("commit-confirmation boundary"));
+        assert!(phronia.contains("release pipeline assigns versions"));
+    }
+
+    #[test]
+    fn pipeline_mode_contract_does_not_advertise_version_writes() {
+        let omv_root = temp_omv_root("contract-pipeline-writes");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Pipeline,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let contract: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(omv_root.join("ai/contract.json")).expect("contract should exist"),
+        )
+        .expect("contract should be valid json");
+
+        for command in ["bump", "sync"] {
+            let entry = &contract["commands"][command];
+            assert_eq!(
+                entry["write"].as_array().map(Vec::len),
+                Some(0),
+                "{command} must not advertise writes in pipeline mode"
+            );
+            assert!(
+                entry["denied_in_pipeline"].is_array(),
+                "{command} should say it is denied in pipeline mode"
+            );
+        }
+        assert_eq!(
+            contract["commands"]["finalize_boundary"]["write"]
+                .as_array()
+                .map(Vec::len),
+            Some(0)
+        );
+
+        cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn local_mode_contract_still_advertises_version_writes() {
+        let omv_root = temp_omv_root("contract-local-writes");
+        storage::config::save_config(
+            &omv_root,
+            &OmvConfig {
+                release_mode: ReleaseMode::Local,
+                ..OmvConfig::default()
+            },
+        )
+        .expect("config should save");
+
+        ensure_canonical_artifacts(&omv_root).expect("canonical artifacts should generate");
+
+        let contract: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(omv_root.join("ai/contract.json")).expect("contract should exist"),
+        )
+        .expect("contract should be valid json");
+
+        for command in ["bump", "sync"] {
+            assert_eq!(
+                contract["commands"][command]["write"]
+                    .as_array()
+                    .map(Vec::len),
+                Some(2),
+                "{command} should stay writable in local mode"
+            );
+        }
+        assert_eq!(
+            contract["commands"]["finalize_boundary"]["write"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
+
+        cleanup_root(&omv_root);
+    }
+
+    #[test]
+    fn finalize_rewrite_is_idempotent() {
+        let once = super::pipeline_safe_source(
+            "- At boundaries, call the OMV finalize-boundary helper from `.omv/ai/contract.json`."
+                .to_owned(),
+        );
+        let twice = super::pipeline_safe_source(once.clone());
+
+        assert_eq!(once, twice);
+        assert_eq!(
+            once.matches("Do not call the OMV finalize-boundary helper")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn spec_index_managed_block_name_matches_integration_name() {
         assert_eq!(
             super::managed_block_name(
@@ -1307,8 +1684,8 @@ mod tests {
     #[test]
     fn trellis_finish_work_managed_block_is_inserted_once_before_quick_check() {
         let input = "# Finish Work\n\n## Checklist\n\n## Quick Check Flow\n\nbody\n";
-        let once = upsert_trellis_finish_work_finalize_block(input, false);
-        let twice = upsert_trellis_finish_work_finalize_block(&once, false);
+        let once = upsert_trellis_finish_work_finalize_block(input, false, ReleaseMode::Local);
+        let twice = upsert_trellis_finish_work_finalize_block(&once, false, ReleaseMode::Local);
 
         assert_eq!(once, twice);
         assert_eq!(twice.matches("OMV-MANAGED-BEGIN").count(), 1);
@@ -1326,7 +1703,7 @@ mod tests {
 
     #[test]
     fn trellis_finish_work_block_v04_is_bump_style() {
-        let block = super::trellis_finish_work_finalize_block(false);
+        let block = super::trellis_finish_work_finalize_block(false, ReleaseMode::Local);
         assert!(block.contains("## OMV Finalize Boundary"));
         assert!(
             block.contains("omv event finalize-boundary --provider trellis --boundary finish-work")
@@ -1335,7 +1712,7 @@ mod tests {
 
     #[test]
     fn trellis_finish_work_block_v05_is_verification_style() {
-        let block = super::trellis_finish_work_finalize_block(true);
+        let block = super::trellis_finish_work_finalize_block(true, ReleaseMode::Local);
         assert!(block.contains("## OMV Finalize Boundary"));
         // No second bump: verification-only block must not INVOKE finalize-boundary.
         assert!(!block.contains("omv event finalize-boundary --provider trellis"));
@@ -1347,7 +1724,7 @@ mod tests {
     #[test]
     fn trellis_finish_work_managed_block_v05_omits_finalize_boundary() {
         let input = "# Finish Work\n\n## Quick Check Flow\n\nbody\n";
-        let rendered = upsert_trellis_finish_work_finalize_block(input, true);
+        let rendered = upsert_trellis_finish_work_finalize_block(input, true, ReleaseMode::Local);
         assert!(rendered.contains("## OMV Finalize Boundary"));
         assert!(!rendered.contains("omv event finalize-boundary --provider trellis"));
         assert!(rendered.contains("omv sync --check"));
@@ -1356,8 +1733,8 @@ mod tests {
     #[test]
     fn phronia_finish_work_block_is_verification_only_and_inserted_before_step_1() {
         let input = "---\nname: phronia-finish-work\n---\n\n# Finish Work\n\nintro\n\n## Step 1: Survey current state\n\nbody\n";
-        let once = upsert_phronia_finish_work_finalize_block(input);
-        let twice = upsert_phronia_finish_work_finalize_block(&once);
+        let once = upsert_phronia_finish_work_finalize_block(input, ReleaseMode::Local);
+        let twice = upsert_phronia_finish_work_finalize_block(&once, ReleaseMode::Local);
 
         assert_eq!(once, twice);
         assert_eq!(twice.matches("OMV-MANAGED-BEGIN").count(), 1);

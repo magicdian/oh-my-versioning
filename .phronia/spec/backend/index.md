@@ -62,6 +62,36 @@ Also read:
   `--as-release`, finalize events return a read-only `pending` result, and
   `bump` supports `--expect`/`--now`/`--dry-run`. See
   `docs/RELEASE_PIPELINE.md`.
+- **Config compatibility is declared by the file, not inferred by the binary.**
+  `load_config` reads `requires_omv` before parsing any typed field and fails
+  with `unsupported_config_capability` when the declared minimum exceeds
+  `OMV_VERSION`. A gate compiled into the binary cannot protect an older binary:
+  that binary has no arm for the newer value, falls back to the enum default, and
+  skips the guard — which is how `omv@2610.27.2` accepted local version writes in
+  a `release_mode = "pipeline"` project. The declaration covers the window from
+  the release that introduced it onward; binaries predating the key ignore it.
+  Gated enums implement `ConfigCapability::minimum_omv` (an exhaustive match, so a
+  new variant cannot silently omit its release) and `required_omv_for(&OmvConfig)`
+  takes the strictest requirement across fields — one number, because a config is
+  read as a whole. `save_config` writes it on `omv init`, and
+  `storage::config::reconcile_requirement` backfills it on `omv integrate apply`
+  so projects created earlier acquire the declaration. `load_config` rejects an
+  understated declaration with `config_declaration_mismatch` and an unparsable
+  one with `malformed_config_requirement` — the key decides whether a config may
+  be read at all, so it must fail closed. An absent `requires_omv` stays
+  compatible.
+- Every surface that reaches an agent must agree about who owns versions. The
+  pipeline-mode rewrite of `.omv/ai/adapters/**` is not enough on its own: the
+  Trellis and Phronia finish-work managed blocks are generated separately
+  (`trellis_finish_work_finalize_block`, `upsert_phronia_finish_work_finalize_block`)
+  and take the release mode too, otherwise a pipeline project with Trellis v0.4
+  still gets "the primary trigger for OMV version updates". Likewise
+  `ai/contract.json` must not list `bump`, `sync`, or `finalize_boundary` under
+  `write` in pipeline mode; they move to `denied_in_pipeline`. A new
+  agent-facing surface is not pipeline-safe until it has been checked here.
+- Version strings (`2611.2.1`) are date-derived, not semver, and compare as
+  zero-padded integer tuples (`capability::compare_versions`). Do not sort them
+  lexicographically.
 - V1 stores configuration, mutable state, and targets in separate TOML files.
 - V1 stores legacy adapter projection recovery state in `.omv/adapters.toml`.
 - MVP host integration selection, detection snapshots, capability status, and

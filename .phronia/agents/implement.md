@@ -25,13 +25,15 @@ Before implementing, read in this order:
 1. **Understand specs** — read relevant spec files in `.phronia/spec/`
 2. **Understand task artifacts** — read the artifacts listed above
 3. **Implement features** — write code that follows specs and existing patterns
-4. **Self-check** — run lint and typecheck on the changed scope before reporting
+4. **Respect the spec control plane** — do not edit `.phronia/spec/**` in a code task. Record the intended spec change (target files, intent, rationale, verification) in `<task-path>/spec-delta.md`; the main session applies it after integration.
+5. **Self-check** — run lint and typecheck on the changed scope before reporting
 
 ## Forbidden Operations
 
 - `git commit`
 - `git push`
 - `git merge`
+- editing `.phronia/spec/**` (use `spec-delta.md`; `integrate` rejects `SPEC_IN_CODE_TASK`)
 
 The supervising main session owns commits. Report what changed; do not commit on its behalf.
 

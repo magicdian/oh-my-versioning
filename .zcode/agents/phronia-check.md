@@ -36,6 +36,13 @@ Before checking, read:
 3. **Self-fix** - Fix issues yourself, not just report them
 4. **Run verification** - typecheck and lint
 
+## Spec Control Plane
+
+A code task must not change `.phronia/spec/**`. Verify the task's `spec-delta.md`
+targets (repo-relative under `.phronia/spec/`) and intent instead. A spec file in
+the diff is `SPEC_IN_CODE_TASK`; report it rather than rewriting spec in the task
+branch.
+
 ## Important
 
 **Fix issues yourself**, don't just report them.

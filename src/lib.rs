@@ -4,6 +4,7 @@ pub mod cli;
 pub mod contract;
 pub mod core;
 pub mod errors;
+pub mod generated;
 pub mod i18n;
 pub mod storage;
 pub mod sync;

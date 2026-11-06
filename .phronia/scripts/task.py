@@ -8,7 +8,7 @@ Usage:
     python3 task.py add-context <dir> <file> <path> [reason] # Add jsonl entry
     python3 task.py validate <dir>              # Validate jsonl files
     python3 task.py list-context <dir>          # List jsonl entries
-    python3 task.py start <dir>                 # Set active task, record current branch
+    python3 task.py start <dir>                 # Set active task, record current feature branch (--coordinator for a parent task)
     python3 task.py current [--source] [--json] # Show active task
     python3 task.py finish                      # Clear active task
     python3 task.py set-branch <dir> <branch>   # Set git branch
@@ -16,6 +16,7 @@ Usage:
     python3 task.py set-scope <dir> <scope>     # Set scope for PR title
     python3 task.py set-meta <dir> <key> <value>  # Set a task metadata key
     python3 task.py rename <dir> <new-slug> [--dry-run]  # Rename task + references
+    python3 task.py spec-delta <dir>            # Create a spec-delta.md template
     python3 task.py archive <task-dir> [--skip-branch-validation]  # Archive completed task
     python3 task.py list                        # List active tasks
     python3 task.py list-archive [month]        # List archived tasks
@@ -47,11 +48,12 @@ from common.active_task import (
     resolve_context_key,
     set_active_task,
 )
-from common.git import current_branch_name
+from common.git import current_branch_name, resolve_default_branch
 from common.io import (
     describe_json_read_failure,
     read_json_checked,
     write_json,
+    write_text_atomic,
 )
 from common.task_utils import resolve_task_dir, run_task_hooks
 from common.tasks import iter_active_tasks, children_progress
@@ -85,12 +87,19 @@ def _record_start_state(
     repo_root: Path,
     label: str = "",
 ) -> None:
-    """Move a freshly started task to in_progress and record its branch.
+    """Move a freshly started task to in_progress and record its feature branch.
 
     Both updates share one read/write: the status flip from planning, and the
     checked-out branch when `branch` is still empty. Recording at start is what
     keeps `branch` trustworthy at archive time — a task whose branch is only
     ever set by hand tends to reach archive with `branch: null`.
+
+    The integration/base branch is deliberately NOT recorded. `branch` means
+    "this task's dedicated feature branch"; recording `main` makes
+    `phronia task workspace ensure` treat the integration branch as a worktree
+    branch and fail with `WORKSPACE_TARGET_EXISTS: branch main is already
+    checked out`. Leaving it empty lets `ensure` reuse the main checkout for a
+    serial task, or create `phronia/<slug>` when isolation is required.
 
     Tolerant on purpose — a broken task.json does not fail `start`, because the
     session pointer is the point of the command. But the read overwrites the
@@ -115,15 +124,9 @@ def _record_start_state(
 
     # Only fill an empty field: an explicit `set-branch` must survive a later
     # `start` (re-starting a task after a checkout is a normal thing to do).
-    base_branch_conflict: str | None = None
     if not data.get("branch"):
         branch = current_branch_name(repo_root)
-        if branch:
-            data["branch"] = branch
-            applied.append(f"✓ Branch recorded: {branch}{label}")
-            if branch == data.get("base_branch"):
-                base_branch_conflict = branch
-        else:
+        if not branch:
             print(
                 colored(
                     "Note: no checked-out branch (detached HEAD, or not a git "
@@ -132,6 +135,19 @@ def _record_start_state(
                 ),
                 file=sys.stderr,
             )
+        elif _is_integration_branch(branch, data, repo_root):
+            print(
+                colored(
+                    f"Note: '{branch}' is the integration/base branch; task "
+                    "branch left empty. `workspace ensure` will reuse the main "
+                    "checkout or create phronia/<slug> when isolation is needed.",
+                    Colors.YELLOW,
+                ),
+                file=sys.stderr,
+            )
+        else:
+            data["branch"] = branch
+            applied.append(f"✓ Branch recorded: {branch}{label}")
 
     if not applied:
         return
@@ -150,22 +166,65 @@ def _record_start_state(
     for line in applied:
         print(colored(line, Colors.GREEN))
 
-    if base_branch_conflict:
-        # Recorded anyway — the value is true, it just cannot describe a PR.
-        # Archive refuses this shape, so say so now rather than at the gate.
-        print(
-            colored(
-                f"Warning: '{base_branch_conflict}' is also this task's base_branch; "
-                "a PR cannot target its own branch, and archive will refuse it.",
-                Colors.YELLOW,
-            ),
-            file=sys.stderr,
-        )
-        print(
-            f"Once you branch off, run: python3 {DIR_WORKFLOW}/scripts/task.py "
-            "set-branch <task> <feature-branch>",
-            file=sys.stderr,
-        )
+
+def _is_integration_branch(
+    branch: str,
+    data: dict,
+    repo_root: Path,
+) -> bool:
+    """Whether `branch` is the integration/base branch, not a feature branch."""
+    candidates = {"main", "master"}
+    base_branch = data.get("base_branch")
+    if isinstance(base_branch, str) and base_branch.strip():
+        candidates.add(base_branch.strip())
+    default_branch = resolve_default_branch(repo_root)
+    if default_branch:
+        candidates.add(default_branch)
+    return branch in candidates
+
+
+def _task_children(
+    task_dir: Path,
+    repo_root: Path,
+) -> list[tuple[str, str]]:
+    """Return `(repo-relative ref, status)` for a parent's direct children.
+
+    Children are stored as directory names by `add-subtask`, but hand-edited
+    task.json files may use a relative or absolute path. Unknown children are
+    reported as `missing` instead of raising: the parent gate must still name
+    every child, including the broken ones.
+    """
+    data, _reason = read_json_checked(task_dir / FILE_TASK_JSON)
+    if data is None:
+        return []
+    children = data.get("children")
+    if not isinstance(children, list):
+        return []
+
+    rows: list[tuple[str, str]] = []
+    for child in children:
+        if not isinstance(child, str) or not child.strip():
+            continue
+        normalized = child.strip().replace("\\", "/")
+        while normalized.startswith("./"):
+            normalized = normalized[2:]
+        if Path(normalized).is_absolute():
+            child_dir = Path(normalized)
+        elif "/" in normalized:
+            child_dir = repo_root / normalized
+        else:
+            child_dir = repo_root / DIR_WORKFLOW / DIR_TASKS / normalized
+        try:
+            ref = child_dir.relative_to(repo_root).as_posix()
+        except ValueError:
+            ref = normalized
+
+        status = "missing"
+        child_data, _child_reason = read_json_checked(child_dir / FILE_TASK_JSON)
+        if child_data is not None and isinstance(child_data.get("status"), str):
+            status = child_data["status"]
+        rows.append((ref, status))
+    return rows
 
 
 def cmd_start(args: argparse.Namespace) -> int:
@@ -191,12 +250,39 @@ def cmd_start(args: argparse.Namespace) -> int:
         print("Hint: Use task name (e.g., 'my-task') or full path (e.g., '.phronia/tasks/01-31-my-task')")
         return 1
 
+    # Parent/coordinator gate: a parent task is a container, not an execution
+    # unit. Starting it as the implementation target is what let a coordinator
+    # session dispatch `phronia-implement` against a PRD that describes several
+    # children. Refuse by default; `--coordinator` makes the intent explicit.
+    children = _task_children(full_path, repo_root)
+    if children and not getattr(args, "coordinator", False):
+        print(colored(
+            f"Error: this is a parent/coordinator task ({len(children)} "
+            f"{'child' if len(children) == 1 else 'children'}); "
+            "it cannot be an implementation target.",
+            Colors.RED,
+        ))
+        print("Children:")
+        for child_ref, status in children:
+            print(f"  - {child_ref}  [{status}]")
+        print("Next:")
+        for child_ref, _status in children:
+            print(
+                "  python3 ./.phronia/scripts/task.py start "
+                f"{child_ref}"
+            )
+        print("Coordination only? Re-run with --coordinator.")
+        return 1
+
     # Context-manifest gate (#573): a seeded-but-uncurated implement/check
     # manifest means every sub-agent dispatched for this task runs with zero
     # spec context, and nothing downstream surfaces that to the main session.
     # An absent manifest is not gated — create seeds the files only on
     # sub-agent-capable platforms, so absence means no sub-agent reads them.
-    if not getattr(args, "allow_empty_context", False):
+    # A coordinator start is exempt: a parent has no sub-agent consumers.
+    if not getattr(args, "allow_empty_context", False) and not getattr(
+        args, "coordinator", False
+    ):
         empty_manifests = [
             name
             for name in ("implement.jsonl", "check.jsonl")
@@ -290,6 +376,57 @@ def cmd_finish(args: argparse.Namespace) -> int:
 
     if task_json_path.is_file():
         run_task_hooks("after_finish", task_json_path, repo_root)
+    return 0
+
+
+SPEC_DELTA_TEMPLATE = """# Spec Delta
+## Target files
+- .phronia/spec/<path>.md
+## Intended changes
+- ...
+## Rationale
+- ...
+## Verification
+- ...
+"""
+
+
+def cmd_spec_delta(args: argparse.Namespace) -> int:
+    """Create a `spec-delta.md` template for a task (never overwrites)."""
+    repo_root = get_repo_root()
+    task_dir = resolve_task_dir(args.dir, repo_root)
+    if task_dir is None or not task_dir.is_dir():
+        print(
+            colored(f"Error: Task not found: {args.dir}", Colors.RED),
+            file=sys.stderr,
+        )
+        print(
+            "Pass an existing task directory under .phronia/tasks/.",
+            file=sys.stderr,
+        )
+        return 1
+
+    target = task_dir / "spec-delta.md"
+    if target.exists():
+        print(
+            colored(
+                f"spec-delta.md already exists: {target}; leaving it untouched",
+                Colors.YELLOW,
+            ),
+            file=sys.stderr,
+        )
+        print(str(target))
+        return 0
+
+    if not write_text_atomic(target, SPEC_DELTA_TEMPLATE):
+        print(
+            colored(f"Error: could not write {target}", Colors.RED),
+            file=sys.stderr,
+        )
+        return 1
+
+    print(colored(f"Created spec-delta.md: {target}", Colors.GREEN), file=sys.stderr)
+    print(str(target))
     return 0
 
 
@@ -542,6 +679,7 @@ Usage:
   python3 task.py set-scope <dir> <scope>            Set scope for PR title
   python3 task.py set-meta <dir> <key> <value>       Set/overwrite a task metadata key
   python3 task.py rename <dir> <new-slug>            Rename task, identity fields and references
+  python3 task.py spec-delta <dir>                   Create a spec-delta.md template (never overwrites)
   python3 task.py archive <task-dir>                 Archive completed task
   python3 task.py add-subtask <parent> <child>       Link child task to parent
   python3 task.py remove-subtask <parent> <child>    Unlink child from parent
@@ -563,6 +701,8 @@ Archive options:
                              `set-base-branch` instead. Use this flag only for tasks that
                              were never PR-backed. A recorded branch that was merged and
                              deleted is only a warning and needs no flag.
+  --skip-spec-sync           Archive despite an unsynced spec-delta.md. The skip is
+                             recorded in the task notes.
 
 List options:
   --mine, -m           Show only tasks assigned to current developer
@@ -689,6 +829,14 @@ def main() -> int:
         action="store_true",
         help="Start even when implement.jsonl / check.jsonl have no curated entries",
     )
+    p_start.add_argument(
+        "--coordinator",
+        action="store_true",
+        help=(
+            "Allow a parent/coordinator task to become the active task and skip "
+            "the implement/check context-manifest gate"
+        ),
+    )
 
     # current
     p_current = subparsers.add_parser("current", help="Show active task")
@@ -743,6 +891,20 @@ def main() -> int:
             "(for tasks that were never PR-backed)"
         ),
     )
+    p_archive.add_argument(
+        "--skip-spec-sync",
+        action="store_true",
+        help=(
+            "Archive even when spec-delta.md exists but meta.spec_sync.status "
+            "is not synced (recorded in task notes)"
+        ),
+    )
+
+    # spec-delta
+    p_spec = subparsers.add_parser(
+        "spec-delta", help="Create a spec-delta.md template for a task"
+    )
+    p_spec.add_argument("dir", help="Task directory")
 
     # list
     p_list = subparsers.add_parser("list", help="List tasks")
@@ -783,6 +945,7 @@ def main() -> int:
         "set-scope": cmd_set_scope,
         "set-meta": cmd_set_meta,
         "rename": cmd_rename,
+        "spec-delta": cmd_spec_delta,
         "archive": cmd_archive,
         "add-subtask": cmd_add_subtask,
         "remove-subtask": cmd_remove_subtask,

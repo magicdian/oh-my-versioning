@@ -9,11 +9,12 @@ one parser cannot drift from another. Returns an empty dict on
 missing/malformed files so callers stay simple.
 
 Supported subset: ``key: value`` scalars (everything is a string), nested
-mappings by indentation, ``- `` lists of scalars, ``#`` comments (whole-line
-and inline outside quotes), and one layer of matching surrounding quotes.
-Constructs outside that subset — block scalars, anchors, aliases, merge keys,
-flow collections, and mappings nested inside a list — are reported on stderr
-and skipped rather than parsed into a plausible-looking wrong value.
+mappings by indentation, ``- `` lists of scalars or flat mappings
+(``- path: x`` / ``  mode: symlink``), ``#`` comments (whole-line and inline
+outside quotes), and one layer of matching surrounding quotes. Constructs
+outside that subset — block scalars, anchors, aliases, merge keys, flow
+collections, and nested lists inside a list-item mapping — are reported on
+stderr and skipped rather than parsed into a plausible-looking wrong value.
 """
 
 from __future__ import annotations
@@ -110,6 +111,81 @@ def _skip_indented_body(lines: list[str], start: int, indent: int) -> int:
     return i
 
 
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _list_item_mapping_key(content: str) -> str | None:
+    """Detect ``key: value`` on a ``- `` list item, else None.
+
+    Quoted scalars (``- "a: b"``) and bare ``a:b`` scalars stay scalars,
+    matching YAML's ``: `` requirement.
+    """
+    if not content or content[0] in ('"', "'"):
+        return None
+    separator = content.find(":")
+    if separator <= 0:
+        return None
+    key = content[:separator].strip()
+    if not all(ch.isalnum() or ch in "_.-/ " for ch in key):
+        return None
+    after = content[separator + 1 :]
+    if after and not after.startswith(" "):
+        return None
+    return key
+
+
+def _parse_list_item(
+    lines: list[str],
+    index: int,
+    dash_indent: int,
+    content: str,
+    item: dict,
+    source: str,
+) -> int:
+    """Parse one ``- key: value`` item and its continuation lines into ``item``."""
+    separator = content.find(":")
+    key = content[:separator].strip()
+    value = _strip_inline_comment(content[separator + 1 :]).strip()
+    was_quoted = len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'")
+
+    if not was_quoted:
+        reason = _unsupported_value(key, value)
+        if reason is not None:
+            _warn_unsupported(source, index + 1, lines[index], reason)
+            return _skip_indented_body(lines, index + 1, dash_indent)
+
+    value = _unquote(value)
+    next_index = index + 1
+    if value or was_quoted:
+        item[key] = value
+    else:
+        followed_index, followed_line = _next_content_line(lines, next_index)
+        if followed_index >= len(lines):
+            item[key] = {}
+            return followed_index
+        content_indent = dash_indent + 2
+        if _indent_of(followed_line) > content_indent:
+            if followed_line.strip().startswith("- "):
+                _warn_unsupported(
+                    source,
+                    followed_index + 1,
+                    followed_line,
+                    "nested lists inside a list item are not supported",
+                )
+                item[key] = {}
+                return _skip_indented_body(lines, followed_index, content_indent)
+            nested: dict = {}
+            item[key] = nested
+            next_index = _parse_yaml_block(
+                lines, followed_index, _indent_of(followed_line), nested, source
+            )
+        else:
+            item[key] = {}
+
+    return _parse_yaml_block(lines, next_index, dash_indent + 1, item, source)
+
+
 def _parse_yaml_block(
     lines: list[str], start: int, min_indent: int, target: dict, source: str
 ) -> int:
@@ -133,8 +209,17 @@ def _parse_yaml_block(
 
         if stripped.startswith("- "):
             if current_list is not None:
-                current_list.append(_unquote(stripped[2:].strip()))
-            i += 1
+                content = stripped[2:].strip()
+                mapping_key = _list_item_mapping_key(content)
+                if mapping_key is None:
+                    current_list.append(_unquote(content))
+                    i += 1
+                else:
+                    item: dict = {}
+                    current_list.append(item)
+                    i = _parse_list_item(lines, i, indent, content, item, source)
+            else:
+                i += 1
         elif ":" in stripped:
             if current_list is not None and indent > list_owner_indent:
                 # `- name: cli` / `  path: x`: the second key belongs to a

@@ -8,11 +8,11 @@
 2. **Specs injected, not remembered** — guidelines are injected via hook/skill, not recalled from memory
 3. **Persist everything** — research, decisions, and lessons all go to files; conversations get compacted, files don't
 4. **Incremental development** — one task at a time
-5. **Capture learnings** — after each task, review and write new knowledge back to spec
+5. **Capture learnings** — after each task, record the spec intent in `spec-delta.md`; the main session applies it after integration
 
 ---
 
-## Phronia System
+## Trellis System
 
 ### Developer Identity
 
@@ -37,6 +37,8 @@ python3 ./.phronia/scripts/get_context.py --mode packages   # list packages / la
 
 **When to update spec**: new pattern/convention found · bug-fix prevention to codify · new technical decision.
 
+**Who writes spec**: spec is control-plane state. A code task must not commit `.phronia/spec/**` on its branch; it records the intent (targets, intended changes, rationale, verification) in `.phronia/tasks/<ref>/spec-delta.md`. After the code lands, the main checkout applies the delta and runs `phronia task spec commit <ref>`. Spec-only tasks (`meta.kind: spec`) are the exception: they run in the main checkout and may edit spec directly.
+
 ### Task System
 
 Every task has its own directory under `.phronia/tasks/{MM-DD-name}/` holding `task.json`, `prd.md`, optional `design.md`, optional `implement.md`, optional `research/`, and context manifests (`implement.jsonl`, `check.jsonl`) for sub-agent-capable platforms.
@@ -52,10 +54,8 @@ python3 ./.phronia/scripts/task.py list [--mine] [--status <s>]
 python3 ./.phronia/scripts/task.py list-archive
 
 # Code-spec context (injected into implement/check agents via JSONL).
-# `implement.jsonl` / `check.jsonl` are seeded (empty) on `task create` for sub-agent-capable
-# platforms; the AI curates real spec + research entries during planning. `validate` fails
-# and `start` refuses while a seeded manifest is still empty — sub-agents would run with
-# zero spec context. Pass `start --allow-empty-context` when that is intentional.
+# `implement.jsonl` / `check.jsonl` are seeded on `task create` for sub-agent-capable
+# platforms; the AI curates real spec + research entries during planning when needed.
 python3 ./.phronia/scripts/task.py add-context <name> <action> <file> <reason>
 python3 ./.phronia/scripts/task.py list-context <name> [action]
 python3 ./.phronia/scripts/task.py validate <name>
@@ -138,7 +138,7 @@ python3 ./.phronia/scripts/get_context.py --mode phase --step <X.Y>  # detailed 
   Editing checklist:
     - When you change a [workflow-state:STATUS] block, also check the
       matching phase's `[required · once]` walkthrough steps for sync
-    - Run `phronia update` after editing to push the new bodies to
+    - Run `trellis update` after editing to push the new bodies to
       downstream user projects (block-level managed replacement)
     - Full runtime contract:
       .phronia/spec/cli/backend/workflow-state-contract.md
@@ -149,13 +149,13 @@ python3 ./.phronia/scripts/get_context.py --mode phase --step <X.Y>  # detailed 
 ```
 Phase 1: Plan    → classify, get task-creation consent, then write planning artifacts
 Phase 2: Execute → implement only after task status is in_progress
-Phase 3: Finish  → verify, update spec, commit, and wrap up
+Phase 3: Finish  → verify, update spec, integrate, commit, and wrap up
 ```
 
 ### Request Triage
 
-- Simple conversation or small task: ask only whether this turn should create a Phronia task. If the user says no, skip Phronia for this session.
-- Complex task: ask whether you may create a Phronia task and enter planning. If the user says no, do not do broad inline implementation; explain, clarify scope, or suggest a smaller split.
+- Simple conversation or small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
+- Complex task: ask whether you may create a Trellis task and enter planning. If the user says no, do not do broad inline implementation; explain, clarify scope, or suggest a smaller split.
 - User approval to create a task is not approval to start implementation. Planning still happens first.
 
 ### Planning Artifacts
@@ -174,12 +174,23 @@ Use child tasks for deliverables that can be planned, implemented, checked, and 
 
 Create new children with `task.py create "<title>" --slug <name> --parent <parent-dir>`. Link existing tasks with `task.py add-subtask <parent> <child>`, and unlink mistakes with `task.py remove-subtask <parent> <child>`.
 
+### Parallel Tasks and the Coordinator (optional)
+
+Parallel execution is an optional mode on top of the same three phases. It never replaces the task workflow; it only adds planning, workspace, and integration primitives.
+
+- **Task-level isolation.** One task = one branch = at most one worktree. Two sessions doing the same task share that worktree; they do not create a second one.
+- **Declare the surface.** A task that may run in parallel should declare `meta.parallel.touches` (paths/globs) and `meta.parallel.depends_on` in `task.json`; `relatedFiles` is also accepted as a footprint source. Unknown footprint = serial. When the planner reports `unknown_footprint`, declare the paths and re-run it.
+- **Plan.** `phronia task parallel plan --explain` shows the waves and the reason for every parallel/serial decision. It is read-only.
+- **Workspace.** `phronia task workspace ensure <ref>` returns `reuse-current`, `attach`, `create`, or `refuse`. Phronia cannot move an already-running session, so when it returns `create`, start a new agent session in the printed worktree path.
+- **Integrate is not archive.** `phronia task integrate <ref>` lands the task (local rebase/verify/fast-forward) or hands it to a forge (remote push + PR/MR). Archive stays in `finish-work` and only happens after a successful integrate.
+- **Coordinator mode.** A single orchestrator session can read a backlog, create tasks, plan waves, dispatch the manifest through the harness's native sub-agent tool, monitor `phronia task coordinator status`, and finally `phronia task integrate --drain`. Phronia never spawns agents itself. Requires a harness with parallel sub-agents and per-task workspaces (Claude Code is the only verified candidate today); ZCode/Codex degrade to multi-session, and unknown platforms are unsupported. See the `phronia-coordinator` skill.
+
 <!-- Per-turn breadcrumb: shown when there is no active task (before Phase 1) -->
 
 [workflow-state:no_task]
-No active task. First classify the current turn and ask for task-creation consent before creating any Phronia task.
-Simple conversation / small task: ask only whether this turn should create a Phronia task. If the user says no, skip Phronia for this session.
-Complex task: ask the user if you can create a Phronia task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
+No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
+Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
+Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
 [/workflow-state:no_task]
 
 <!-- Per-turn breadcrumb: shown when the active task record cannot be read. -->
@@ -195,7 +206,7 @@ Preserve existing task fields and artifacts. If the correct status cannot be det
 - 1.1 Requirement exploration `[required · repeatable]` (`prd.md`; complex tasks also need `design.md` + `implement.md`)
 - 1.2 Research `[optional · repeatable]`
 - 1.3 Configure context `[required · once]` — Claude Code, Cursor, OpenCode, Codex, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Grok, Kimi Code (sub-agent-dispatch platforms only; inline platforms skip)
-- 1.4 Activate task `[required · once]` (review gate, then `task.py start`; status → in_progress)
+- 1.4 Activate task `[required · once]` (review gate, then `task.py start`; status → in_progress; then `phronia task workspace ensure`)
 - 1.5 Completion criteria
 
 <!-- Per-turn breadcrumb: shown throughout Phase 1 (status='planning') -->
@@ -205,6 +216,7 @@ Load `phronia-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
+Parallel candidates: declare `meta.parallel.touches` / `depends_on`, then run `phronia task parallel plan --explain`. Main occupied by another task: use `phronia task workspace prepare --for-new-task` before creating this one.
 [/workflow-state:planning]
 
 <!-- Per-turn breadcrumb: shown throughout Phase 1 when codex.dispatch_mode=inline.
@@ -218,6 +230,7 @@ Load `phronia-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `phronia-before-dev`.
+Parallel candidates: declare `meta.parallel.touches` / `depends_on`, then run `phronia task parallel plan --explain`. Main occupied: use `phronia task workspace prepare --for-new-task`.
 [/workflow-state:planning-inline]
 
 ### Phase 2: Execute
@@ -231,13 +244,17 @@ Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `phronia-bef
      therefore must cover every required step from implementation through
      commit, including Phase 3.3 spec update and Phase 3.4 commit. -->
 
-Sub-agent dispatch protocol applies to all platforms and all sub-agents, including native Codex `SubagentStart` context injection with child-side pull fallback, class-2 Gemini/Qoder/Copilot/Reasonix/Trae/Grok/Kimi Code, hook-backed ZCode/Snow, and `phronia-research`: every dispatch prompt starts with `Active task: <task path from task.py current>` before role-specific instructions. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Phronia agent name (e.g. `phronia-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/phronia-<role>/SKILL.md` instructions.
+Sub-agent dispatch protocol applies to all platforms and all sub-agents, including native Codex `SubagentStart` context injection with child-side pull fallback, class-2 Gemini/Qoder/Copilot/Reasonix/Trae/Grok/Kimi Code, hook-backed ZCode/Snow, and `phronia-research`: every dispatch prompt starts with `Active task: <task path from task.py current>` before role-specific instructions. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `phronia-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/phronia-<role>/SKILL.md` instructions.
 
 [workflow-state:in_progress]
 Tools: `phronia-implement` / `phronia-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `phronia-update-spec` is a skill. `phronia-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow: `phronia-implement` -> `phronia-check` -> `phronia-update-spec` -> commit (Phase 3.4) -> `/phronia:finish-work`.
+Flow: `phronia-implement` -> `phronia-check` -> `phronia-update-spec` -> commit (Phase 3.4) -> `phronia task integrate <ref>` -> `/phronia:finish-work`.
 Main-session default: dispatch implement/check sub-agents. Sub-agent self-exemption: if already running as `phronia-implement`, do NOT spawn another `phronia-implement` or `phronia-check`; if already running as `phronia-check`, do NOT spawn another `phronia-check` or `phronia-implement`. Dispatch is main session only.
 Dispatch prompt starts with `Active task: <task path from task.py current>`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
+Spec: record intent in `spec-delta.md` (Phase 3.3); never commit `.phronia/spec/**` from a code task (`SPEC_IN_CODE_TASK`). Sync after integration (`phronia task spec plan|commit`).
+Multi-session: one session per worktree; the main session orchestrates with `phronia task parallel launch`; never run concurrent mutating sub-agents (ZCode/Codex inherit cwd). Research may run in parallel.
+Workspace: after `task.py start`, run `phronia task workspace ensure <ref> --json`; if it returns `create`, start the session in the printed worktree. Use explicit `--task` / `--session-key`, never a pid fallback.
+Worktree tasks: each session owns one task and commits inside that worktree (`phronia task commit <ref>`) before integrate. `integrate` failure stops `/phronia:finish-work`; archive never runs on a dirty or unlanded worktree.
 [/workflow-state:in_progress]
 
 <!-- Per-turn breadcrumb: shown while status='in_progress' when
@@ -246,16 +263,20 @@ Dispatch prompt starts with `Active task: <task path from task.py current>`. Rea
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow: `phronia-before-dev` -> edit -> `phronia-check` -> validation -> `phronia-update-spec` -> commit (Phase 3.4) -> `/phronia:finish-work`.
+Flow: `phronia-before-dev` -> edit -> `phronia-check` -> validation -> `phronia-update-spec` -> commit (Phase 3.4) -> `phronia task integrate <ref>` -> `/phronia:finish-work`.
 Do not dispatch implement/check sub-agents in inline mode.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
+Spec: write `spec-delta.md`, not `.phronia/spec/**`; sync after integration.
+Multi-session: one session per worktree; no concurrent mutating sub-agents (ZCode/Codex inherit cwd).
+Workspace: after `task.py start`, run `phronia task workspace ensure <ref> --json`; start the session in the printed worktree when it returns `create`.
+Worktree tasks: commit inside the worktree (`phronia task commit <ref>`) before integrate; integrate failure stops archive.
 [/workflow-state:in_progress-inline]
 
 ### Phase 3: Finish
 - 3.2 Debug retrospective `[on demand]`
 - 3.3 Spec update `[required · once]`
 - 3.4 Commit changes `[required · once]`
-- 3.5 Wrap-up reminder
+- 3.5 Wrap-up reminder (integrate the task, then `/phronia:finish-work` archives)
 
 > Note: step 3.1 was folded into 2.2 (last-iteration full-scope check) and 3.4 (commit preamble). Numbering kept stable to avoid breaking external references.
 
@@ -298,6 +319,8 @@ When a user request matches one of these intents inside an active task, route fi
 - Repeated debugging -> `phronia-break-loop`; spec updates -> `phronia-update-spec`.
 
 [/codex-inline, Kilo, Antigravity, Devin, DeepSeek Harness]
+
+- Parallel planning, worktree/workspace decisions, or coordinator orchestration -> load `phronia-coordinator` and pass its capability gate before dispatching. Unsupported harnesses degrade to multi-session or serial; never pretend a batch was dispatched.
 
 ### Guardrails
 
@@ -357,6 +380,12 @@ When considering a parent/child split:
 - Child tasks own actual deliverables that can be planned, implemented, checked, and archived independently.
 - Parent/child structure is not a dependency system. If child B depends on child A, write that ordering in child B's `prd.md` / `implement.md`.
 - Start the child task that owns the next deliverable. Do not start the parent unless the parent itself has direct implementation work.
+
+**Parallel planning (optional).** Once requirements are stable, decide whether this task can run in parallel with others:
+
+- Record what the task will touch in `meta.parallel.touches` (paths/globs; `relatedFiles` also works), and real ordering in `meta.parallel.depends_on`. These live in `task.json`.
+- Run `phronia task parallel plan --explain`. It is read-only. A task without a declared footprint is scheduled alone (`unknown_footprint`) rather than guessed into a batch.
+- If planning shows this task belongs in a parallel wave, create/plan it in the main checkout first. Tasks created in a linked worktree are `branch-local` until integrated and will not appear in the main planner.
 
 Return to this step whenever requirements change and revise the relevant artifact.
 
@@ -452,11 +481,28 @@ After artifact review, flip the task status to `in_progress`:
 python3 ./.phronia/scripts/task.py start <task-dir>
 ```
 
+If `<task-dir>` is a parent task (`task.json.children` is non-empty), `start` refuses by default and prints one `start` command per child: a parent is a coordination container, not an implementation target. Start a child instead. When the session should coordinate from the parent, run `python3 ./.phronia/scripts/task.py start <task-dir> --coordinator`; that skips the implement/check manifest gate and still does not make the parent a valid dispatch target.
+
 For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
 
 After this command succeeds, the breadcrumb auto-switches to `[workflow-state:in_progress]`, and the rest of Phase 2 / 3 follows.
 
 If `task.py start` errors with a session-identity message (no context key from hook input, `PHRONIA_CONTEXT_ID`, or platform-native session env), follow the hint in the error to set up session identity, then retry.
+
+**Workspace decision (after start).** Decide where this task will run before doing implementation work:
+
+```bash
+phronia task workspace ensure <task-dir> --json
+```
+
+- `reuse-current` — the main checkout is now claimed by this task; work here.
+- `attach` — the task already has a worktree; use the returned path.
+- `create` — the main checkout is owned by another task (or this task needs isolation). Phronia creates the worktree and prints it. **Start a new agent session in that directory** (or use the platform's native worktree launch); Phronia cannot move a running session's cwd.
+- `refuse` — follow the printed next step (usually commit/stash the main checkout, or release another owner's claim).
+
+Session identity is required: pass `--session-key <key>` or set `PHRONIA_CONTEXT_ID`. Do **not** fall back to a CLI process pid — every `phronia` invocation is a new process, so pid liveness is meaningless. If another task owns `main` and this task does not exist yet, `phronia task workspace prepare --for-new-task "<title>"` creates a provisional workspace first; `task.py create` can then bind the task to it.
+
+Worktrees live under the resolved root (`parallel.worktree_dir`, default `.phronia-workspace/` at the repository root). The JSON result carries `worktreeRoot` with the absolute root and whether git ignores it. If `gitignore.ignored` is false, add the printed pattern before starting work: an unignored root leaves the main checkout dirty and the next `ensure` refuses.
 
 #### 1.5 Completion criteria
 
@@ -481,7 +527,23 @@ If `task.py start` errors with a session-identity message (no context key from h
 
 Goal: turn reviewed planning artifacts into code that passes quality checks.
 
+**Session/task model.** One session works on one task. When the task has a worktree, run implementation, checks, and verification inside that worktree — do not edit the main checkout for another task. A second session on the same task shares the same worktree (it does not create a second one); concurrent edits there need coordination, not another workspace.
+
+Before integration, the task's work must be committed in its own worktree:
+
+```bash
+phronia task commit <task-ref>
+```
+
+`phronia task commit` refuses to run in the main checkout for a worktree task (`COMMIT_WRONG_WORKSPACE`). The orchestrator never commits a worktree task on `main`.
+
+**Multi-session is the only mutating parallel model.** One session works in one worktree. To run independent tasks in parallel, the main session orchestrates: `phronia task parallel plan` → `phronia task parallel launch --prepare` → open one session per worktree using its `Active task:` line. Do not run multiple mutating sub-agents (implement/check) in one session: ZCode and Codex sub-agents inherit the parent cwd, so concurrent writers collide. Only read-only `phronia-research` sub-agents may run in parallel inside one session. Collect commits, integrate serially, then sync spec.
+
+**Spec is not a task footprint.** Implement/check write code and task artifacts only. Intended spec changes go into `spec-delta.md` (Phase 3.3); `.phronia/spec/**` is applied after integration.
+
 #### 2.1 Implement `[required · repeatable]`
+
+**Never dispatch a parent task.** The `Active task:` line must name an executable unit: a leaf task or an `in_progress` child. Dispatch admission rejects a parent (`DISPATCH_PARENT_TASK`) and a task whose status is not `in_progress` (`DISPATCH_TASK_NOT_IN_PROGRESS`); start the child first (Phase 1.4) and dispatch it.
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, CodeBuddy, Droid, Pi, ZCode, Snow, Oh My Pi]
 
@@ -588,18 +650,24 @@ If this task involved repeated debugging (the same issue was fixed multiple time
 
 The goal is to capture debugging lessons so the same class of issue doesn't recur.
 
-#### 3.3 Spec update `[required · once]`
+#### 3.3 Spec delta `[required · once]`
 
 Load the `phronia-update-spec` skill and review whether this task produced new knowledge worth recording:
 - Newly discovered patterns or conventions
 - Pitfalls you hit
 - New technical decisions
 
-Update the docs under `.phronia/spec/` accordingly. Even if the conclusion is "nothing to update", walk through the judgment.
+**Do not edit `.phronia/spec/**` in a code task.** Record the intent in `.phronia/tasks/<ref>/spec-delta.md`:
+
+```bash
+python3 ./.phronia/scripts/task.py spec-delta .phronia/tasks/<ref>
+```
+
+Fill in `## Target files` (repo-relative paths under `.phronia/spec/`), `## Intended changes`, `## Rationale`, and `## Verification`. Commit the delta with the task artifacts. If there is genuinely nothing to record, do not create the file — the task's spec state is then `none`. Spec-only tasks (`meta.kind: spec`) may update `.phronia/spec/**` directly in the main checkout.
 
 #### 3.4 Commit changes `[required · once]`
 
-**Spec-sync preamble**: before drafting commits, ask: did this task fix a bug or surface non-obvious knowledge that should land in `.phronia/spec/` so future-you (or future-AI) doesn't repeat the mistake? If yes, return to Phase 3.3 first — spec writes belong in the same task's commit batch, not as a forgotten follow-up.
+**Spec-delta preamble**: before drafting commits, ask: did this task fix a bug or surface non-obvious knowledge that should land in `.phronia/spec/` so future-you (or future-AI) doesn't repeat the mistake? If yes, record it in `spec-delta.md` (Phase 3.3) — never commit spec files from a code task. The main session applies the delta after integration.
 
 The AI drives a batched commit of this task's code changes so `/finish-work` can run cleanly afterwards. Goal: produce work commits FIRST, then bookkeeping (archive + journal) commits land after — never interleaved.
 
@@ -651,18 +719,38 @@ The AI drives a batched commit of this task's code changes so `/finish-work` can
 
 #### 3.5 Wrap-up reminder
 
+Before wrapping up, decide how the task lands:
+
+```bash
+phronia task integrate <task-ref>
+```
+
+- **Integration mode.** `--mode auto` resolves to `local` when there is no remote, and to `remote` when `origin` exists; `integrate` always prints the resolved mode and its reason. It asks at most once (when both modes are viable and materially different) and records the choice in `meta.integration.mode`.
+- **Integrate != archive.** A successful integrate records `meta.integration.outcome` (`landed` or `pushed`) and may leave a metadata-only commit. It does not move the task to `archive/`.
+- **Failure stops archive.** If integrate fails (verification, conflict, dirty checkout, mode error), stop here and follow the printed handoff. Do not archive a task whose integrate failed.
+- **Sync spec after landing.** For each landed task with `spec-delta.md`:
+  ```bash
+  phronia task spec plan <task-ref>
+  # main session applies the delta to .phronia/spec/** using the landed diff
+  phronia task spec commit <task-ref>
+  ```
+  This holds the integration lock, creates one `chore(spec): sync <refs>` commit, and records `meta.spec_sync.status=synced`. A spec failure stops the flow; do not archive. Tasks without a delta report `none` and need no sync.
+- **Then** run `/phronia:finish-work`, which re-checks the worktree, archives the task (refusing `SPEC_SYNC_PENDING`), and refreshes `docs/requirements.md`. `--skip-spec-sync` is only for an explicit user decision and records the reason.
+- Tasks without a worktree can still integrate their current checkout; their worktree-free archive behavior is unchanged.
+
+
 After the above, remind the user they can run `/finish-work` to wrap up (archive the task, record the session).
 
 ---
 
-## Customizing Phronia (for forks)
+## Customizing Trellis (for forks)
 
-This section is for developers who want to modify the Phronia workflow itself. All customization is done by editing this file; the scripts are parsers only.
+This section is for developers who want to modify the Trellis workflow itself. All customization is done by editing this file; the scripts are parsers only.
 
 ### Changing what a step means
 
 Edit the corresponding step's walkthrough body in the Phase 1 / 2 / 3 sections above. Critical invariants:
-- No active task must triage first and ask for task-creation consent before creating a Phronia task.
+- No active task must triage first and ask for task-creation consent before creating a Trellis task.
 - Planning must distinguish lightweight PRD-only tasks from complex tasks that require `prd.md`, `design.md`, and `implement.md` before start.
 - Every required execution path must keep the Phase 3.4 commit reminder reachable before `/phronia:finish-work`.
 
@@ -671,7 +759,7 @@ All tag blocks live in the `## Phase Index` section above, immediately after eac
 | Scope | Corresponding tag |
 |---|---|
 | No active task (before Phase 1) | `[workflow-state:no_task]` (after the Phase Index ASCII art) |
-| Active task record unreadable | `[workflow-state:task_error]` (repair the existing task before continuing) |
+| Active task record unreadable | `[workflow-state:task_error]` (after the Phase Index ASCII art) |
 | All of Phase 1 (task created → ready for implementation) | `[workflow-state:planning]` (after Phase 1 summary) |
 | Codex inline Phase 1 | `[workflow-state:planning-inline]` |
 | Phase 2 + Phase 3.2–3.4 (implementation + check + wrap-up) | `[workflow-state:in_progress]` (after Phase 2 summary) |
@@ -680,7 +768,7 @@ All tag blocks live in the `## Phase Index` section above, immediately after eac
 
 ### Changing the per-turn prompt text
 
-Directly edit the body of the corresponding `[workflow-state:STATUS]` block. After editing, run `phronia update` (if you're a template maintainer) or restart your AI session (if you're customizing your own project) — no script changes required.
+Directly edit the body of the corresponding `[workflow-state:STATUS]` block. After editing, run `trellis update` (if you're a template maintainer) or restart your AI session (if you're customizing your own project) — no script changes required.
 
 ### Adding a custom status
 

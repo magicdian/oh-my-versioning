@@ -23,7 +23,7 @@
     "handshakes": ".phronia/.runtime/harness",
     "rulesCompiled": ".phronia/.runtime/rules.json",
     "gate": ".phronia/gate.yaml",
-    "worktrees": ".phronia/worktrees",
+    "worktrees": ".phronia-workspace",
     "worktreeRegistry": ".phronia/.runtime/worktrees.json",
     "version": ".phronia/.version",
     "developer": ".phronia/.developer",

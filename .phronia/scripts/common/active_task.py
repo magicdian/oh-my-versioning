@@ -118,7 +118,33 @@ _ENV_SESSION_KEYS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # Phronia in its source header. PHRONIA_CONTEXT_ID stays the preferred
     # override — Snow sets that too.
     ("snow", ("SNOW_SESSION_ID",)),
+    # REAL (verified 2026-10-28 against OpenCode 2.x source): the shell tool
+    # sets OPENCODE_SESSION_ID per command in tool/plugin/shell.ts. It is the
+    # first verified OpenCode identity variable; v1 only had the plugin's
+    # command prefix.
+    ("opencode", ("OPENCODE_SESSION_ID",)),
 )
+
+# Host markers used before the flat table. PHRONIA_HOST is explicit and wins;
+# the rest are best-effort markers for platforms that do not set it yet.
+# ZCode is checked before OpenCode/Claude because it mirrors their env names.
+_HOST_ENV_KEY = "PHRONIA_HOST"
+_HOST_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("zcode", ("ZCODE_PROJECT_DIR", "ZCODE_PLUGIN_ROOT")),
+    ("opencode", ("OPENCODE",)),
+    ("claude", ("CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PROJECT_DIR")),
+)
+
+
+def _detect_host_platform() -> str | None:
+    explicit = _string_value(os.environ.get(_HOST_ENV_KEY))
+    if explicit:
+        return explicit
+    for platform, keys in _HOST_MARKERS:
+        for key in keys:
+            if _string_value(os.environ.get(key)):
+                return platform
+    return None
 _ENV_CONVERSATION_KEYS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # REAL in cursor-agent (CLI), undocumented (verified 2026-08-05: the value
     # matches ~/.cursor/chats/<ws>/<id>). The Cursor *IDE* is unverified — a
@@ -529,6 +555,13 @@ def resolve_context_key(
 
     data = _as_dict(platform_input)
     platform_name = _detect_platform(data, platform) if data or platform else None
+    # Nested harnesses inherit their parent's session variables. When the
+    # caller did not name a platform, trust the host marker so a ZCode shell
+    # launched from OpenCode is not attributed to the OpenCode session.
+    if not platform_name or platform_name == "session":
+        host = _detect_host_platform()
+        if host:
+            platform_name = _sanitize_key(host) or "session"
 
     if data:
         session_id = _lookup_string(data, _SESSION_KEYS)
