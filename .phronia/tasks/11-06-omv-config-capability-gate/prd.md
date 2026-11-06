@@ -46,6 +46,7 @@ pipeline 模式下生成的 AI 指令不得要求 agent 调用 finalize-boundary
 - 不改变 `release_mode` 的语义本身。
 - 不引入运行时插件或外部 schema 拉取。
 - 不处理 native manifest 的版本写入策略。
+- **不追溯保护历史状态。** 一份由旧版 omv 写出、且不含 `requires_omv` 的配置，配上旧版二进制，行为不变——旧二进制不认识这个键，会忽略它。本机制保护的是"发布该键的版本之后"的所有版本。历史项目通过 `omv integrate apply` 获得声明后才进入保护范围。
 
 ## Acceptance Criteria
 
@@ -53,8 +54,11 @@ pipeline 模式下生成的 AI 指令不得要求 agent 调用 finalize-boundary
 - [ ] `build_policy`、`version_output` 同样受门控保护（与 `release_mode` 走同一机制，非三份手写分支）。
 - [ ] 缺少某个受门控键时仍沿用该键既有默认值，且不触发门控失败。
 - [ ] pipeline 模式生成的 `.omv/ai/instructions.md` 不含 "call the OMV finalize-boundary helper" 字样。
-- [ ] pipeline 模式生成的 `contract.json` 中 `finalize_boundary` 标注为只读/pipeline 归属。
-- [ ] local 模式的 `instructions.md`、`contract.json` 与改动前逐字节一致。
+- [ ] pipeline 模式生成的 `contract.json` 中 `finalize_boundary` 标注为只读/pipeline 归属，且 `bump`/`sync`/`finalize_boundary` 不再以可写命令形式出现在 `write` 下。
+- [ ] pipeline 模式下 Trellis 与 Phronia 的 finish-work 托管块不包含任何 bump 指令（Trellis v0.4 注入点尤为关键）。
+- [ ] local 模式的 `instructions.md` 与全部 `ai/adapters/*` 与改动前逐字节一致；`contract.json` 除新增的 `release_mode_behavior` 键外与改动前一致（按模式计算的字段无法让该文件整体不变）。
+- [ ] `omv integrate apply` 能为缺少 `requires_omv` 的历史项目回填该键，且重复执行不产生改动。
+- [ ] 畸形 `requires_omv` 返回 `malformed_config_requirement`，不得 fail-open 放行。
 - [ ] `cargo test` 全绿；`cargo clippy` 无新增告警。
 
 ## Notes

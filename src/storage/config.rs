@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use crate::core::locale::OperatorLocale;
 use crate::core::schema::OmvConfig;
 use crate::core::target::ProjectProfile;
-use crate::core::versioning::capability;
+use crate::core::versioning::capability::{self, ConfigCapability};
 use crate::core::versioning::{
-    BuildPolicy, GateOutcome, ReleaseMode, VersionOutput, gate_declared_requirement,
+    BuildPolicy, GateOutcome, REQUIRE_RELEASE_KEY, ReleaseMode, VersionOutput,
+    gate_declared_requirement,
 };
 use crate::errors::{ConfigError, OmvError};
 
@@ -129,11 +130,11 @@ fn ensure_required_omv(assignments: &[(String, String)]) -> Result<(), OmvError>
         return Err(ConfigError::MalformedRequirement(declared.to_owned()).into());
     }
 
-    let release_mode = assignments
-        .iter()
-        .find(|(key, _)| key == "release_mode")
-        .map(|(_, value)| value.as_str());
-    let culprit = release_mode.map(|value| ("release_mode", value));
+    // Only name a culprit when one of the file's values actually forces a later
+    // release. Reporting `release_mode = "local"` for a requirement that came
+    // from the declaration itself would point a reader at a setting that needs
+    // nothing.
+    let culprit = culprit_for_requirement(assignments, declared);
 
     match gate_declared_requirement(culprit, Some(declared)) {
         GateOutcome::Supported => Ok(()),
@@ -209,15 +210,33 @@ pub fn reconcile_requirement(root: &Path) -> Result<bool, OmvError> {
     Ok(true)
 }
 
+/// Finds the config value that forces `declared`, if one of them does.
+///
+/// `release_mode = "pipeline"` is the only value today whose semantics raise a
+/// project's requirement, so it is the only one that can be blamed. When the
+/// declaration demands more than any value present explains, the caller falls
+/// back to naming `requires_omv` itself.
+fn culprit_for_requirement<'a>(
+    assignments: &'a [(String, String)],
+    declared: &str,
+) -> Option<(&'static str, &'a str)> {
+    let value = assignments
+        .iter()
+        .find(|(key, _)| key == "release_mode")
+        .map(|(_, value)| value.as_str())?;
+
+    let requirement = ReleaseMode::parse(value)?.minimum_omv()?;
+    capability::compare_versions(requirement, declared)
+        .filter(|ordering| *ordering != std::cmp::Ordering::Greater)
+        .map(|_| ("release_mode", value))
+}
+
 fn declared_requirement(assignments: &[(String, String)]) -> Option<&str> {
     assignments
         .iter()
         .find(|(key, _)| key == REQUIRE_RELEASE_KEY)
         .map(|(_, value)| value.as_str())
 }
-
-/// Config key declaring the minimum `omv` release that can honour the file.
-const REQUIRE_RELEASE_KEY: &str = "requires_omv";
 
 fn parse_assignments(content: &str) -> Vec<(String, String)> {
     content

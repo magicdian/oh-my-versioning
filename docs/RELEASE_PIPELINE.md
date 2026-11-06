@@ -85,8 +85,16 @@ older than the declared version exits with:
 
 The check is deliberately one-directional: a *newer* binary reading an older
 config is always fine, and an absent `requires_omv` keeps every pre-existing
-config loadable. A malformed declaration is not treated as an upgrade request —
-it falls through to the normal parse error.
+config loadable. A malformed declaration fails closed with
+`malformed_config_requirement` — the key decides whether the file may be read at
+all, so a typo in it must not silently disable the check.
+
+**Scope, stated plainly.** This key protects every release from the one that
+introduces it onwards. It cannot protect a binary that predates the key: that
+binary has no arm for an unknown key and ignores it, which is why the
+`omv@2610.27.2` failure was possible in the first place. Existing projects gain
+the declaration by running `omv integrate apply`, which backfills it. A project
+that never runs it stays unprotected.
 
 #### How the declaration is derived
 

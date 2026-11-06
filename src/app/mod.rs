@@ -2211,6 +2211,9 @@ fn install_integration_target(
     plan: &IntegrationCapabilityPlan,
 ) -> Result<crate::core::adapter::AdapterTargetMode, OmvError> {
     let host_path = project_root.join(target.host_rel);
+    let release_mode = load_config_if_exists(omv_root)?
+        .map(|config| config.release_mode)
+        .unwrap_or_default();
 
     match target.behavior {
         IntegrationTargetBehavior::TrellisFinalizeBoundary => {
@@ -2227,8 +2230,11 @@ fn install_integration_target(
             let is_v05_or_later = crate::core::integration::detect_trellis_version(project_root)
                 .map(|info| info.is_v05_or_later)
                 .unwrap_or(false);
-            let content =
-                adapter::upsert_trellis_finish_work_finalize_block(&existing, is_v05_or_later);
+            let content = adapter::upsert_trellis_finish_work_finalize_block(
+                &existing,
+                is_v05_or_later,
+                release_mode,
+            );
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;
             Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
         }
@@ -2243,7 +2249,8 @@ fn install_integration_target(
                 .into());
             }
             let existing = fs::read_to_string(&host_path)?;
-            let content = adapter::upsert_phronia_finish_work_finalize_block(&existing);
+            let content =
+                adapter::upsert_phronia_finish_work_finalize_block(&existing, release_mode);
             storage::atomic::write_atomically(&host_path, content.as_bytes())?;
             Ok(crate::core::adapter::AdapterTargetMode::ManagedBlock)
         }

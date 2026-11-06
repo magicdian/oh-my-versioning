@@ -59,16 +59,18 @@ pub struct UnsupportedCapability {
 
 impl std::fmt::Display for UnsupportedCapability {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.value {
+        match self.value.as_deref().filter(|value| !value.is_empty()) {
             Some(value) => write!(
                 f,
                 ".omv/config.toml declares {} = \"{}\", which needs omv >= {}, but this binary is {}; upgrade omv (npm install -g @magicdian/omv@latest) to read this project",
                 self.field, value, self.required_version, self.current_version
             ),
+            // No specific value explains the requirement, so the declaration
+            // itself is the thing to point at.
             None => write!(
                 f,
-                ".omv/config.toml requires omv >= {}, but this binary is {}; upgrade omv (npm install -g @magicdian/omv@latest) to read this project",
-                self.required_version, self.current_version
+                ".omv/config.toml declares {} = \"{}\", but this binary is {}; upgrade omv (npm install -g @magicdian/omv@latest) to read this project",
+                self.field, self.required_version, self.current_version
             ),
         }
     }
