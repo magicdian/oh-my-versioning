@@ -3,7 +3,7 @@
   "name": "omv-config-capability-gate",
   "title": "OMV 配置能力门控与 pipeline 提示词收敛",
   "description": "在 core 层引入配置能力门控：旧版本 omv 读到不认识的 release_mode 等超前配置项时必须硬失败并提示升级，而不是静默降级为默认值；同时收敛 pipeline 模式的提示词，不再要求 agent 调用注定 no-op 的 finalize-boundary。",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "magicdian",
   "assignee": "magicdian",
   "createdAt": "2026-11-06",
-  "completedAt": null,
+  "completedAt": "2026-11-06",
   "branch": "dev",
   "base_branch": "main",
   "worktree_path": null,
@@ -21,7 +21,7 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
+  "notes": "spec sync skipped at archive (--skip-spec-sync)",
   "meta": {
     "integration": {
       "mode": "local",
