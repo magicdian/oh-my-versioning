@@ -856,3 +856,28 @@ Added opt-in release_mode=pipeline with single-writer guards, bump --expect/--no
 ### Status
 
 [OK] **Completed**
+
+
+## Session 25: OMV config compatibility gate and pipeline prompt convergence
+<!-- phronia-session: v=2 fp=165e73cfac0ff520 -->
+
+**Date**: 2026-11-06
+**Task**: OMV config compatibility gate and pipeline prompt convergence
+**Branch**: `dev`
+
+### Summary
+
+Added requires_omv so a config declares the minimum omv release that can honour it, checked before typed parsing so an outdated binary fails instead of silently falling back to release_mode=local and bumping. Derived from all gated fields via ConfigCapability::minimum_omv, backfilled on omv integrate apply, fail-closed on a malformed value. Stopped every agent-facing surface from advertising local version writes in pipeline mode: ai/adapters rewrite, Trellis/Phronia finish-work managed blocks, and contract.json command tables.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `16fda289` | feat(config): gate incompatible configs via requires_omv and stop advertising finalize in pipeline |
+| `29a2d9e5` | feat(config): derive requires_omv from every gated field and verify it on load |
+| `b22679a5` | fix(config): fail closed on a malformed requires_omv and backfill the declaration |
+| `8ea07746` | fix(adapter): stop every pipeline surface from advertising a local version bump |
+
+### Status
+
+[OK] **Completed**
